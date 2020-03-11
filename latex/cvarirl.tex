@@ -1,0 +1,187 @@
+\documentclass{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\newcommand{\tr}{^\mathsf{T}}
+\DeclareMathOperator{\var}{V@R}
+\DeclareMathOperator{\avar}{AV@R}
+\newcommand{\Ex}{\mathbb{E}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\zero}{\mathbf{0}}
+\newcommand{\eye}{\mathbf{I}}
+\newcommand{\states}{\mathcal{S}}
+\newcommand{\actions}{\mathcal{A}}
+\newcommand{\Real}{\mathbb{R}}
+\newcommand{\opt}{^{\star}}
+
+\setlength{\parskip}{2mm plus1mm minus1mm}
+\setlength{\parindent}{0cm} 
+
+\title{Optimization for CVaR IRL}
+\author{}
+
+\begin{document}
+	\maketitle
+	
+	
+\section{Notation}	
+	We use the following notation:
+	\begin{itemize}
+		\item States $\states = \{1, \ldots, S \}$
+		\item Actions $\actions = \{ 1, \ldots, A\}$
+		\item $\Delta^k$ probability simplex in k-dimensions.
+		\item Initial distribution: $p_0 \in \Delta^S$
+		\item Rewards: $r: \states\times\actions \to \Real$
+		\item Policy: $\pi: \states \to \actions$  \textbf{[I think all of this should work for stochastic policies, too, right?]}
+		\item Rewards for policy $\pi$: $r_\pi(s) = r(s, \pi(s))$
+		\item Expert's policy $\pi_{E}: \states \to \actions$
+		\item Transition probability for a policy $\pi$: $P_\pi$, treated as a matrix, defined as:
+		\[ P_\pi(s,s') = P(s,\pi(s),s')\]
+		\item Occupancy frequency for a policy: $u_\pi = (I - \gamma P_\pi \tr)^{-1} p_0$. This can be derived by noting that the Markov Chain stationary distribution over states $u_\pi$ satisfies the following equation at equilibrium: $u_\pi = p_0 + \gamma P^T_\pi u_\pi$. Solving for $u_\pi$ yields the above equation.
+		\item Linear feature matrix with rows as states and columns as features: $\Phi \in \Real^{S\cdot A \times k}$, where $k$ is the number of features
+		\item Assume that the rewards are approximated as $r = \Phi w$ for some $w\in\Real^k$
+		\item Feature counts: $\mu_\pi = \Phi\tr u_\pi$. Here $\mu_\pi \in \Real^k$
+		\item Value function $v_\pi = (I - \gamma P)^{-1} r_\pi $. This can be derived via the bellman equation for values: $v_\pi = r_\pi + \gamma P_\pi v_\pi$ and solving for $v_\pi$.
+		\item Return for a specific policy and rewards: $\rho(\pi, r) = p_0\tr v = u_\pi\tr r_\pi$
+	\end{itemize}
+	
+	
+	Now, assume that $R$ is the random variable representing the reward. The posterior can be derived using Bayesian IRL. Let $R_1, R_2, R_3, \ldots$ be samples from the posterior distribution.
+
+
+\section{Value at Risk}
+When dealing with risk we will assume that lower values are worse (riskier), thus we will want to maximize the Value at Risk or Conditional Value at Risk since tails to the left are  bad. We will define $\alpha$-Value at risk as the $(1-\alpha)$ quantile worst-case outcome. Thus, the $\alpha$-VaR is such that 
+\begin{equation}
+\alpha\text{-VaR}[X] = \sup \{x : Pr(X \geq x) \geq \alpha\}
+\end{equation}
+	
+	Given policy $\pi$, our AAAI'19 paper \cite{Brown2017} focused on finding a high-confidence lower bound on:
+	\[ \var\left[\rho(\pi, R) - \rho(\pi^*_R, R) \right] ,\]
+
+This is not quite the same as finding a lower bound on 
+	\[ \var\left[\rho(\pi, R) - \rho(\pi_E, R) \right] ,\]	
+
+	where $R$ is the random variable distributed according to the posterior from the Bayesian IRL. This second form is interesting because we may be able to do better than the expert. We don't want to match the risk of the expert, rather we want to minimize our risk with the expert as the baseline. \textbf{Can we do the same thing as our AAAI paper by reusing the BIRL $\pi^*$ for each policy? I think so. We just adjust the objective so instead of $u_E$ we use $u_{\pi^*}$, right?} We will denote the posterior distribution $p$; and generally assume that $p$ is a probability distribution over a finite number of samples from the posterior distribution, e.g. a uniform distribution over $n$ samples from MCMC. In \cite{Brown2017} we derive finite-sample bounds in terms of the number of samples from the posterior distribution. Unfortunately, $\var$ is not convex and thus is hard to optimize.
+
+
+\section{Average Value at Risk}
+Average Value at Risk ($\avar$) is a convex coherent risk measure. It is also commonly referred to as Conditional Value at Risk, expected tail risk, or expected shortfall. It is convex, and is a lower bound on $\var$. It can be also preferable because it does not ignore how heavy the tail of the distribution is. $\var$ only considers the quantile, but ignores any outcome that may be worse than that.
+	
+	The intuitive (but not entirely correct) definition of $\avar$ (the same as CVaR) is:
+	\[ \avar_\alpha[X] = \Ex\left[ X ~\mid~ X \le \var_\alpha[X]\right] ~.\]
+	This only works for atomless distributions such that no $\omega$ has a positive probability (i.e. most continuous distributions). However, we are interested in maximizing $\avar$ given a finite number of samples from the posterior distribution $P(R|D)$. The correct convex definition of $\avar$ that works for any distribution (discrete or continuous) is:
+	\[ \max_{\sigma}\; \left( \sigma - \frac{1}{1-\alpha} p\tr [\sigma \cdot \one - x ]_+ \right) ~,\]
+	where $[\cdot]_+$ is an element-wise non-negative part of the vector $x$: $[x]_+ = \max \{x, \zero\}$. 
+	
+	
+	
+	A popular way to analyze and use coherent risk measures is to look at their robust representation:
+	\[ \avar_\alpha[X] = \min_{q\in\mathcal{Q}} \Ex_q[X]~, \]
+	which is the expectation with respect to a worst-case distortion of the nominal probability distribution $p$. For $\avar$ the set $\mathcal{Q}$ is defined as:
+	\[ \mathcal{Q} = \left\{ q \in \Delta^n ~\mid~ q \le \frac{1}{1-\alpha} p \right\} ~, \]
+	where $\Delta^n$ is the probability simplex over $\mathbb{R}^n$ and $p \in \Delta^n$.
+	
+	Lets say that the goal is to find the best policy and we want to minimize $\avar$ of the ``robust baseline regret''~\cite{Ho2016,Petrik2016,Syed2008}. We called this a robust baseline regret but this is just the standard objective in IRL:
+	\begin{equation} \label{eq:holy_grail}
+	\max_{\pi} \avar_\alpha\left[ \rho(\pi, R) - \rho(\pi_E, R) \right] 
+	\end{equation}
+	
+	
+	We can formulate \eqref{eq:holy_grail} as a linear program following the next steps. Recall the one to one correspondence between randomized policies $\pi: \mathcal{S} \to \Delta^A$ (where $A$ is the number of actions) and the occupancy frequencies $u$~\cite{Puterman2005}. That means that $\max_{\pi} \rho(\pi, r)$ corresponds to the following linear program~\cite{Puterman2005}:
+	\[\max_{u:\states\times\actions\to\Real} \left\{ r\tr u ~\mid~ \sum_{a\in\mathcal{A}} (\eye - \gamma\cdot P_a\tr) u_a = p_0, u \ge \zero \right\}~. \]
+	
+I'm currently solving this via SciPy's built in LP solver as follows:
+
+\begin{eqnarray}
+\min_{u:\states\times\actions\to\Real}&& -r\tr u \\
+\text{s.t.}&&\begin{bmatrix}
+(I - \gamma P_{a_1}\tr), \ldots, (I - \gamma P_{a_m}\tr)
+\end{bmatrix}
+\begin{bmatrix}
+u_{a_1} \\
+\vdots\\
+u_{a_n}
+\end{bmatrix}
+= p_0 \\
+&& u \geq \zero
+\end{eqnarray}
+where $u_{a} = [u_{(s_1, a)}, u_{(s_2, a)}, \ldots u_{(s_n, a)}]\tr$. 
+
+	Using the same approach as the linear program above, we can formulate \eqref{eq:holy_grail} as a linear program following these steps. Let $R$ be a matrix $(S\cdot A) \times n$ of all sampled posterior rewards $R$. That is, each column of $R$ represents one sample of the vector over rewards for each state and action pair. \eqref{eq:holy_grail} becomes:
+	\begin{equation} \label{eq:lp_objective}
+	\max_{u,\sigma} \left\{ \sigma -\frac{1}{1-\alpha} p\tr \left[\sigma\cdot\one - R\tr u  + R\tr u_E \right]_+  ~\mid~ \sum_{a\in\mathcal{A}} (\eye - \gamma\cdot P_a\tr) u_a = p_0, u \ge \zero \right\}~.  
+	\end{equation}
+	This is a linear program which works in the tabular case. This can be written more explicitly as 
+	
+\begin{eqnarray}
+\max_{\sigma, u}&& \sigma - \frac{1}{1-\alpha}p\tr z \\
+\text{s.t.}&& z \geq \sigma \one - R\tr(u - u_E)\\
+&&\begin{bmatrix}
+(I - \gamma P_{a_1}\tr), \ldots, (I - \gamma P_{a_m}\tr)
+\end{bmatrix}
+\begin{bmatrix}
+u_{a_1} \\
+\vdots\\
+u_{a_n}
+\end{bmatrix}
+= p_0 \\
+&& u \geq \zero \\
+&& z \geq \zero 
+\end{eqnarray}		
+	
+	
+I'm using SciPy to solve this LP in the following form:
+
+\begin{eqnarray}
+\min_{\sigma, u}&& -\sigma + \frac{1}{1-\alpha}p\tr z \\
+\text{s.t.}&& - R\tr u + \sigma \one  - z  \leq -R\tr u_E\\
+&&\begin{bmatrix}
+(I - \gamma P_{a_1}\tr), \ldots, (I - \gamma P_{a_m}\tr)
+\end{bmatrix}
+\begin{bmatrix}
+u_{a_1} \\
+\vdots\\
+u_{a_n}
+\end{bmatrix}
+= p_0 \\
+&& u \geq \zero \\
+&& z \geq \zero 
+\end{eqnarray}	
+	
+	
+	The optimal risk-averse IRL policy $\pi\opt$ can be constructed from an optimal $u\opt$ solution to \eqref{eq:lp_objective} as:
+	\begin{equation} \label{eq:policy_from_u}
+	\pi\opt(s,a) = \frac{u\opt(s,a)}{\sum_{a'\in\mathcal{A}} u\opt(s,a') }~. 
+	\end{equation}
+	
+	
+	The linear program can be easily extended to linear approximation by assuming that $r = \Phi w$ is which case the return becomes $u\tr r = u\tr \Phi w = \mu\tr w$.
+	
+	This formulation can be extended to non-linear approximation using a similar approach as GAIL, I think. The key is the dual representation of $\avar$ naturally maps to an adversarial algorithm. 
+
+\subsection{Recovering Rewards}
+
+The question is how to recover the reward vector the would generate the AVaR return. One possibility is to use the dual representation of AVaR. Let $\pi\opt$ be the optimal solution to \eqref{eq:lp_objective} as in \eqref{eq:policy_from_u}. Let:
+\[ \mathcal{Q} = \left\{ q \in \Delta^n ~\mid~ q \le \frac{1}{1-\alpha} p \right\} ~. \]
+Then to get the reward, let $\pi\opt$ be the optimal solution to \eqref{eq:lp_objective}. Then one needs to solve:
+\begin{equation} \label{eq:q_value}
+\avar_\alpha\left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right] = \max_{q\in\mathcal{Q}} \Ex_{R \sim q} \left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right]~.
+\end{equation}
+Another way to write the expectation would be as follows:
+\[ \Ex_{R \sim q} \left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right] = \sum_{i=1}^n q_i \left( \rho(\pi\opt, r_i) - \rho(\pi_E, r_i) \right)~, \]
+where $r_i$ is the $i$-th posterior sample.
+
+
+Let $q\opt$ be the optimal solution to the linear program in \eqref{eq:q_value}. Using the fact that $\rho$ is linear in $r$, we get:
+\[ \Ex_{R \sim q\opt} \left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right] =  \rho\left(\pi\opt, \Ex_{R \sim q\opt}[R]\right) - \rho\left(\pi_E, \Ex_{R \sim q\opt}[R]\right)~.\]
+That means that $\Ex_{R \sim q\opt}[R]$ is the worst-case reward.
+
+	
+\bibliographystyle{plain}
+\bibliography{library}
+	
+\end{document}
