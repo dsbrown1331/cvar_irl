@@ -4,7 +4,9 @@
 \usepackage{enumitem}
 
 \usepackage{amsmath}
+\usepackage{amsfonts}
 \usepackage{amssymb}
+\usepackage{graphicx}
 
 \newcommand{\tr}{^\mathsf{T}}
 \DeclareMathOperator{\var}{V@R}
@@ -36,16 +38,17 @@
 		\item $\Delta^k$ probability simplex in k-dimensions.
 		\item Initial distribution: $p_0 \in \Delta^S$
 		\item Rewards: $r: \states\times\actions \to \Real$
-		\item Policy: $\pi: \states \to \actions$  \textbf{[I think all of this should work for stochastic policies, too, right?]}
-		\item Rewards for policy $\pi$: $r_\pi(s) = r(s, \pi(s))$
+		\item Policy: $\pi: \states \times \actions \to [0,1]$  \textbf{[Double check other notation to make it work for stochastic policies]}
+		\item Rewards for policy $\pi$: $r_\pi(s) = \mathbb{E}_{a \sim \pi(s)} r(s, a)$
 		\item Expert's policy $\pi_{E}: \states \to \actions$
 		\item Transition probability for a policy $\pi$: $P_\pi$, treated as a matrix, defined as:
-		\[ P_\pi(s,s') = P(s,\pi(s),s')\]
-		\item Occupancy frequency for a policy: $u_\pi = (I - \gamma P_\pi \tr)^{-1} p_0$. This can be derived by noting that the Markov Chain stationary distribution over states $u_\pi$ satisfies the following equation at equilibrium: $u_\pi = p_0 + \gamma P^T_\pi u_\pi$. Solving for $u_\pi$ yields the above equation.
+		\[ P_\pi(s,s') = \mathbb{E}_{a \sim \pi(s)} P(s,a,s') = \sum_a \pi(a|s) P(s,a,s'	)\]
+		\item Occupancy frequency for a policy: $u_\pi = (I - \gamma P_\pi \tr)^{-1} p_0$. This can be derived by noting that the Markov Chain stationary distribution over states $u_\pi$ satisfies the following equation at equilibrium: $u_\pi = p_0 + \gamma P^T_\pi u_\pi$. Solving for $u_\pi$ yields the above equation. 
+		\item If we want the state-action occupancies we can solve for these similarly as $u_\pi = p_0 + \gamma P^T_\pi u_\pi$ and $u(s,a) = u_\pi \cdot \pi(a|s)$.
 		\item Linear feature matrix with rows as states and columns as features: $\Phi \in \Real^{S\cdot A \times k}$, where $k$ is the number of features
 		\item Assume that the rewards are approximated as $r = \Phi w$ for some $w\in\Real^k$
 		\item Feature counts: $\mu_\pi = \Phi\tr u_\pi$. Here $\mu_\pi \in \Real^k$
-		\item Value function $v_\pi = (I - \gamma P)^{-1} r_\pi $. This can be derived via the bellman equation for values: $v_\pi = r_\pi + \gamma P_\pi v_\pi$ and solving for $v_\pi$.
+		\item Value function $v_\pi = (I - \gamma P_\pi)^{-1} r_\pi $. This can be derived via the bellman equation for values: $v_\pi = r_\pi + \gamma P_\pi v_\pi$ and solving for $v_\pi$.
 		\item Return for a specific policy and rewards: $\rho(\pi, r) = p_0\tr v = u_\pi\tr r_\pi$
 	\end{itemize}
 	
@@ -83,7 +86,7 @@ Average Value at Risk ($\avar$) is a convex coherent risk measure. It is also co
 	\[ \avar_\alpha[X] = \min_{q\in\mathcal{Q}} \Ex_q[X]~, \]
 	which is the expectation with respect to a worst-case distortion of the nominal probability distribution $p$. For $\avar$ the set $\mathcal{Q}$ is defined as:
 	\[ \mathcal{Q} = \left\{ q \in \Delta^n ~\mid~ q \le \frac{1}{1-\alpha} p \right\} ~, \]
-	where $\Delta^n$ is the probability simplex over $\mathbb{R}^n$ and $p \in \Delta^n$.
+	where $\Delta^n$ is the probability simplex over $\mathbb{R}^n$ and $p \in \Delta^n$. You can think about this as follows: when alpha is 0 then $q\leq p$ and since $\sum q = \sum p = 1$ and $q \geq 0$, we must have $q = p$. Thus CVaR is just $\min_{q=p}\mathbb{E}_q[X] = \mathbb{E}_p[X]$. Just the nominal expectation since VaR with alpha = 0 is the biggest possible value of X so CVaR is just the expectation of X. As you make alpha larger it gives q more wiggle room. As alpha goes to 1 you make 1/(1-alpha) go to infinity so q can choose to put all the probability mass on very unlikely outcomes. Because it is trying to minimize expectation under this warped distribution it will put as much weight as it can on these worst outcomes and can focus more on unlikely outcomes as alpha goes to 1. 
 	
 	Lets say that the goal is to find the best policy and we want to minimize $\avar$ of the ``robust baseline regret''~\cite{Ho2016,Petrik2016,Syed2008}. We called this a robust baseline regret but this is just the standard objective in IRL:
 	\begin{equation} \label{eq:holy_grail}
@@ -169,8 +172,9 @@ The question is how to recover the reward vector the would generate the AVaR ret
 \[ \mathcal{Q} = \left\{ q \in \Delta^n ~\mid~ q \le \frac{1}{1-\alpha} p \right\} ~. \]
 Then to get the reward, let $\pi\opt$ be the optimal solution to \eqref{eq:lp_objective}. Then one needs to solve:
 \begin{equation} \label{eq:q_value}
-\avar_\alpha\left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right] = \max_{q\in\mathcal{Q}} \Ex_{R \sim q} \left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right]~.
+\avar_\alpha\left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right] = \min_{q\in\mathcal{Q}} \Ex_{R \sim q} \left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right]~.
 \end{equation}
+\textbf{It seems like this should be minimize, right? I'm changing it for now.}
 Another way to write the expectation would be as follows:
 \[ \Ex_{R \sim q} \left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right] = \sum_{i=1}^n q_i \left( \rho(\pi\opt, r_i) - \rho(\pi_E, r_i) \right)~, \]
 where $r_i$ is the $i$-th posterior sample.
@@ -178,9 +182,169 @@ where $r_i$ is the $i$-th posterior sample.
 
 Let $q\opt$ be the optimal solution to the linear program in \eqref{eq:q_value}. Using the fact that $\rho$ is linear in $r$, we get:
 \[ \Ex_{R \sim q\opt} \left[ \rho(\pi\opt, R) - \rho(\pi_E, R) \right] =  \rho\left(\pi\opt, \Ex_{R \sim q\opt}[R]\right) - \rho\left(\pi_E, \Ex_{R \sim q\opt}[R]\right)~.\]
-That means that $\Ex_{R \sim q\opt}[R]$ is the worst-case reward.
+That means that $\Ex_{R \sim q\opt}[R] = \sum_i q_i R_i$ is the worst-case reward.
 
+So does this mean that $\pi^*_{cvar}$ is optimal wrt $\Ex_{R \sim q\opt}[R]$ or that it is optimal wrt maximizing the CVaR robust baseline regret wrt this reward? It must be the latter, right? Actually, since $R_{cvar}\tr u_E$ is constant shouldn't maximizing one be equivalant to maximizing the other? Why doesn't it work out in code? The learned policy doesn't match what you would get by just maximizing policy for $R_{cvar}$. 
+
+One possible issue that I've noticed is that there might be multiple optimal solutions for $R_{cvar}$. This is because if there are two different reward functions that lead to the same policy loss then $q^*$ can blend them any way. However, this seems to be able to lead to different optimal policies. It would be nice to have a reward function that when optimized would recover the solution to the CVaR policy, but maybe that is not possible?
+
+\subsection{Dual}
+
+So, after talking with Marek it turns out that to get the reward that, when optimized, results in the CVaR optimal policy, we need to solve the dual problem:
+
+\begin{eqnarray}
+\min_{v, q}&& p_0^T v - u_E^T R q\\
+\text{s.t.}&& \sum_{i=1}^n q = 1 \\
+&& q \leq \frac{1}{1-\alpha}p\\
+&&\begin{bmatrix}
+(I - \gamma P_{a_1})\\
+\vdots \\
+(I - \gamma P_{a_m})
+\end{bmatrix}
+v \geq Rq\\
+&& q \geq \zero \\
+&& v \in \mathbb{R}^{|S|}
+\end{eqnarray}	
+
+\section{Example}
+
+Consider a determinisitc two state chain MDP with actions left and right as shown in Figure~\ref{fig:two_state_mdp} with two actions: left and right.
+
+Let's assume that $\gamma = 0.5$ and that we saw a demonstration that started in state S2 and took action left to travel to S1. Given this information let's assume that our posterior distribution has three possibilities with non-zero probability: $R_1$, $R_2$, and $R_3$, where
+\begin{eqnarray}
+  R_1 &=& (0, 1, 0, 0) \\
+  R_2 &=& (0.5, 0, 0.5, 0)  \\ 
+  R_3 &=& (0.5, 0.5, 0, 0) \\
+\end{eqnarray}
+where each reward vector is of the form $\big(r(S1, \leftarrow), r(S2,\leftarrow), r(S1, \rightarrow), r(S2, \rightarrow)\big)$. $R_1$ assumes going left in state 2 is the only thing that matters. $R_2$ assumes that being in state S1 is the only thing that matters. $R_3$ assumes that always taking the left action is the only thing that matters.
+
+\begin{figure}
+\centering
+\includegraphics[scale=0.2]{./figs/chain_twostate.png}
+\caption{}
+\label{fig:two_state_mdp}
+\end{figure}
+
+Let's assume for now that we have a uniform posterior over these possibilities, thus $p= (1/3, 1/3, 1/3)$ and 
+\begin{equation}
+R = \begin{bmatrix}
+0. &  0.5 & 0.5 \\
+ 1. & 0. & 0.5 \\
+ 0. & 0.5 & 0.  \\
+ 0. &  0. & 0. \\
+\end{bmatrix}
+\end{equation}
+
+We will also assume for now that $u_E = \zero$. Thus we just want to find the robust solution that maximizes the $\avar$ of $\rho(\pi, R)$.
+
+\subsection{Solutions for different $\alpha$}
+Let's try solving for the optimal cvar policy for different values of $\alpha$. 
+
+\begin{center}
+\begin{tabular}{cccccc}
+\hline 
+$\alpha$ & CVaR & $P(\leftarrow \mid S1)$ & $P(\rightarrow \mid S1)$ & $P(\leftarrow \mid S2)$ & $P(\rightarrow \mid S2)$ \\ 
+\hline 
+0 & 0.75 & 1 & 0 & 1 & 0 \\
+0.2& 0.70 & 0.6 & 0.4 & 1 & 0 \\
+ 0.5& 0.66 & 0.6 & 0.4 & 1 & 0 \\
+ 0.8& 0.66 & 0.75 &  0.25 & 1 & 0 \\
+  0.99& 0.66 & 0.75 & 0.25 & 1 & 0 \\
+\hline 
+\end{tabular} 
+\end{center}
+
+As expected the CVaR decreases as $\alpha$ increases. However, I was surprised that it plateaued at 2/3 so quickly. 
+
+\subsection{$q^*$ for different $\alpha$}
+I also calculated $q^*$ for different $\alpha$ values.
+
+
+\begin{center}
+\begin{tabular}{c|c|cccc|ccc}
+\hline 
+$\alpha$ & CVaR & $r(S1, \leftarrow)$ & $r(S2,\leftarrow)$ & $r(S1, \rightarrow)$ & $r(S2, \rightarrow)$ & $q_1$ & $q_2$ & $q_3$\\ 
+\hline 
+0 & 0.75 & 1/3 & 1/2 & 1/6 & 0 & 1/3 & 1/3 & 1/3 \\
+0.2& 0.70 & 0.35 & 0.44 & 0.21 & 0.0 & 0.29 & 0.42 & 0.29 \\
+ 0.5& 0.66 & 0.42 & 0.25 & 0.33 & 0.0 & 0.17 & 0.67 & 0.17 \\
+ 0.8& 0.66 & 0.25 & 0.5 & 0.25 & 0.0 & 0.5 & 0.5 & 0 \\
+  0.99& 0.66 & 0.25 & 0.5 & 0.25 & 0.0 & 0.5 & 0.5 & 0 \\
+\hline 
+\end{tabular} 
+\end{center}
+
+\subsection{Numerical issues}
+I've found that depending on the solver I use I sometimes get different answers. In particular, I ran with $\alpha - 0.2$ using either simplex or interior point and got two different results. The CVaR values are the same for both, and the CVaR maximizing policies are the same, but the values for $q^*$ are different. I think this is because the policy returns over the posterior are $\rho(\pi^*_{cvar},R) = [0.75 , 0.625, 0.75 ]$ for $R_1$, $R_2$, and $R_3$, respectively.
+
+When choosing $q^*$ it will put as much mass on $R_2$ as possible, but then has a choice between $R_1$ and $R_3$ and it doesn't matter in terms of the robust representation. However, it does matter in terms of the actual reward function $R_{cvar} = \Ex_{R \sim q\opt}[R]$.
+
+For simplex I get $R_{cvar} = (0.29, 0.5, 0.21, 0)$, but for interior point I get $R_{cvar} = (0.35, 0.44, 0.21, 0)$. Maximizing the first leads to always going right in S1 and left in S2. Optimizing the second leads to always going left in S1 and S2. Also the expected returns of each of the policies are different from the value of the CVaR objective and also different from the value of the robust representation LP objective with $\pi^*$ fixed. This seems problematic, if we can't recover the CVaR optimal policy from the CVaR reward since for $\alpha=0.2$ the solution of the CVaR LP was $\pi^* = (0.6, 0.4, 1, 0)$.
+ 
+ 
+\section{Bayesian IRL}
+
+We solve for the feature expectations using the following linear program~\cite{Puterman2005}:
+	\[\max_{u:\states\times\actions\to\Real} \left\{ r\tr u ~\mid~ \sum_{a\in\mathcal{A}} (\eye - \gamma\cdot P_a\tr) u_a = p_0, u \ge \zero \right\}~. \]
 	
+For vanilla Bayesian IRL we need to get the Q-values for all states in the demonstrations. However, for optimizing CVaR and finding something robust to the best policy under each reward function we need the occupancy frequencies for each mdp in the chain. 
+
+How do we do this? We take a hypothesis reward function $r$ and then run the above LP to get $u$. We then calculate the Q-values how? What's the fastest way with matrix vector notation? We can solve for values with LP, but then need to solve the dual for occupancy frequencies or can we recover them?
+
+Can we efficiently go backwards? If we have the state value function, we can easily solve for the Q-values using an expectimax over next states. The Q-values give a greedy optimal policy. We can then solve for the feature expectations or state occupancies via a policy evaluation step. Actually, can't we just solve for the successor features via value iteration? This gives everything we need, right? Rather than using a scalar as the reward, just use a vector of state occupancies and dot with reward weights when computing max? This way seems better since we can get expected occupancies by taking initial distribution and multiplying by successor features matrix. 
+
+\textbf{First TODO:}
+Get slow version of BIRL working with running an LP for occupancy frequencies (dual). Then get policy, and policy rewards. Then we can solve for the value function as 
+\begin{equation}
+v_\pi = (I - \gamma P_\pi)^{-1} r_\pi
+\end{equation}
+and for the Q-values as
+\begin{equation}
+q_\pi(s,a) = r(s,a) + \gamma \sum_{s'} P(s,a,s') v_\pi(s')
+\end{equation}
+Alternatively, we can vectorize and solve as 
+\begin{eqnarray}
+q_\pi = r + \gamma 
+\begin{bmatrix}
+P_{a_1} \\
+\vdots \\
+P_{a_n}
+\end{bmatrix}
+ v_\pi
+ = r + \gamma 
+\begin{bmatrix}
+P_{a_1} \\
+\vdots \\
+P_{a_n}
+\end{bmatrix}
+(I - \gamma P_\pi)^{-1} r_\pi
+\end{eqnarray}
+
+
+\textbf{Optimization TODO: }
+Test this. Write a value iteration method that computes successor representations [Dayan, DeepMind] and check if I get the same thing as the LP.
+
+Can probably use sparse matrices for transitions and make things faster!
+
+Might want to transition to C++ if things are working nicely but too slow...
+
+
+\section{Questions}
+What to do about reward scaling? Can we add a L1 constraint to the LP? Taking a convex combo of $R_i$ could lead to a reward with $\|R\|<1$. I'm not sure if that is a problem or not.
+
+
+What if we don't have good expert occupancies?
+Can we do what we did in the AAAI'18 paper and have things relative to optimal policies for each posterior sample? Yes. this should work. What if the demonstrator is risky? Can we do better than the demonstrator but still stay safe? \textbf{I think this would be very compelling since other work like RS-GAIL just tries to match the safety of the demonstrator.}
+
+Can we combine this with T-REX? We can get fast MCMC done with TREX maybe even add stein variational stuff. Then we have posterior. Can we make the demonstrations the baseline? Could take the empirical feature counts of the demos and try to maximize CVaR with respect to demonstrator.  
+	
+\section{TODO}
+Extend this to linear feature approximation.
+
+Extend to non-linear feature approximation via GAIL-like approach.
+
+
+
 \bibliographystyle{plain}
 \bibliography{library}
 	
