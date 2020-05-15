@@ -7,6 +7,8 @@
 \usepackage{amsfonts}
 \usepackage{amssymb}
 \usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
 
 \newcommand{\tr}{^\mathsf{T}}
 \DeclareMathOperator{\var}{V@R}
@@ -161,8 +163,29 @@ u_{a_n}
 	\pi\opt(s,a) = \frac{u\opt(s,a)}{\sum_{a'\in\mathcal{A}} u\opt(s,a') }~. 
 	\end{equation}
 	
+
+\subsection{Linear Reward Function Approximation}
 	
 	The linear program can be easily extended to linear approximation by assuming that $r = \Phi w$ is which case the return becomes $u\tr r = u\tr \Phi w = \mu\tr w$.
+	
+	
+	Using the same approach as the linear program above, we can formulate \eqref{eq:holy_grail} as the following linear program,	
+	
+	\begin{equation} \label{eq:lp_objective}
+	\max_{u,\sigma} \left\{ \sigma -\frac{1}{1-\alpha} p\tr \left[\sigma\cdot\one - R\tr u  + R\tr u_E \right]_+  ~\mid~ \sum_{a\in\mathcal{A}} (\eye - \gamma\cdot P_a\tr) u_a = p_0, u \ge \zero \right\}~.  
+	\end{equation}
+	
+where 
+\begin{equation}
+R =
+\begin{bmatrix}
+\Phi w_1, \cdots, \Phi w_n 
+\end{bmatrix}
+\end{equation}
+
+\textbf{Can we reformulate it in terms of expected feature counts instead of state-action occupancies? Is there any benefit to this?}
+
+\subsection{Non-linear reward function approximation}
 	
 	This formulation can be extended to non-linear approximation using a similar approach as GAIL, I think. The key is the dual representation of $\avar$ naturally maps to an adversarial algorithm. 
 
@@ -328,6 +351,47 @@ Can probably use sparse matrices for transitions and make things faster!
 
 Might want to transition to C++ if things are working nicely but too slow...
 
+\section{Efficient Frontier}
+Currently we just find a policy that has maximum CVaR. But what if we want to trade off how much risk or reward our policy has? Then we get a familiy of solutions. 
+
+We need to change our objective so that we can balance expected return and risk. Then given different weights on the two objectives we get a curve of policies that maximize the expected return for a given risk tolerance or that minimize the risk given a certain lower bound on expected return. We can formalize this via a lagrange multiplier in the objective where we now want to maximize CVaR and maximize expected return over the distribution. \textbf{Question, do we want to do this over the mean or MAP reward?} Currently, I'm going to try over the mean reward of the posterior. Thus, the objective becomes:
+
+	\begin{equation} \label{eq:lp_objective}
+	\max_{u,\sigma} \left\{ \sigma -\frac{1}{1-\alpha} p\tr \left[\sigma\cdot\one - R\tr u  + R\tr u_E \right]_+ + \lambda \bar{r}^T u ~\mid~ \sum_{a\in\mathcal{A}} (\eye - \gamma\cdot P_a\tr) u_a = p_0, u \ge \zero \right\}~.  
+	\end{equation}
+
+Where $\bar{r} = Rp$, the mean reward under the posterior and $\lambda>0$ is a hyperparameter determining how much we value expected return over risk minimization. However, we can also use the MAP reward, if desired.
+
+Okay, so how does this perform for different values of $\lambda$? I'm going to try this on the ambiguous lava domain from my AAAI'18 paper. 
+
+\begin{eqnarray}
+\min_{\sigma, u}&& -\sigma + \frac{1}{1-\alpha}p\tr z - \lambda p\tr R\tr u \\
+\text{s.t.}&& - R\tr u + \sigma \one  - z  \leq -R\tr u_E\\
+&&\begin{bmatrix}
+(I - \gamma P_{a_1}\tr), \ldots, (I - \gamma P_{a_m}\tr)
+\end{bmatrix}
+\begin{bmatrix}
+u_{a_1} \\
+\vdots\\
+u_{a_n}
+\end{bmatrix}
+= p_0 \\
+&& u \geq \zero \\
+&& z \geq \zero 
+\end{eqnarray}	
+
+
+\subsection{Experiment}
+Let's try a range of lambdas for a fixed alpha and plot them. 
+Let's also try a range of alphas with lambda = 0 and plot them. 
+My hypothesis is that as lambda goes to infinity this will correspond to alpha = 0. Not sure what will happen in between, though.
+
+To do this we take an MDP and calculate the optimal occupancy frequencies. We then need to save the CVaR and expected return of the policy and then plot them.
+
+One interesting thing is that now the objective value is not the CVaR!!! It's got the expected return in it. So I need to just take the first part 
+$CVaR = \sigma -\frac{1}{1-\alpha} p\tr \left[\sigma\cdot\one - R\tr u  + R\tr u_E \right]_+$
+
+
 
 \section{Questions}
 What to do about reward scaling? Can we add a L1 constraint to the LP? Taking a convex combo of $R_i$ could lead to a reward with $\|R\|<1$. I'm not sure if that is a problem or not.
@@ -337,6 +401,74 @@ What if we don't have good expert occupancies?
 Can we do what we did in the AAAI'18 paper and have things relative to optimal policies for each posterior sample? Yes. this should work. What if the demonstrator is risky? Can we do better than the demonstrator but still stay safe? \textbf{I think this would be very compelling since other work like RS-GAIL just tries to match the safety of the demonstrator.}
 
 Can we combine this with T-REX? We can get fast MCMC done with TREX maybe even add stein variational stuff. Then we have posterior. Can we make the demonstrations the baseline? Could take the empirical feature counts of the demos and try to maximize CVaR with respect to demonstrator.  
+
+Since $\alpha=0$ is just maximizing CVaR over the entire distribution, isn't this just maximizing expected return? At least in the robust setting where $u_E = 0$? So if we have a lambda term on expected return versus isn't this effectively just scaling $\alpha$ \textbf{TODO: } Is there a difference empirically?
+
+Okay, so here are the results for the ambiguous lava example. I ran Bayesian IRL with featurized linear reward to collect 2000 samples from the posterior. I then used a burn of 50 and skipped every other sample to form the final posterior. I solved for the CVaR optimal policy using several different values of $\alpha$ an using $\lambda \in [0.0, 0.01, 0.05, 0.075, 0.1, 0.2, 0.5, 0.75, 1.0, 2.0, 3.0, 5.0, 10.0, 100.0]$. The figures shown in Figure~\ref{fig:lava_ambiguous_frontiers} show the results along with the corresponding first lambda value that achieved a certain CVaR and expected return.
+
+As expected we see a frontier of optimal policies that optimally trade-off robustness (lower CVaR is worse so higher CVaR is more robust) and expected return. Anything down and to the left of this efficient frontier curve will be dominated since it will either have the same robustness but lower expected return or the same expected return but lower robustness.
+
+Surprisingly, there are not many optimal policies as you vary $\lambda$. But there are only two features, so I imagine that using more features will give more variety.
+
+\begin{figure}
+\centering
+\includegraphics[width=0.75\linewidth]{figs/ImprovementWorld_revised.pdf}
+\caption{}
+\label{}
+\end{figure}
+
+
+\begin{figure}
+     \centering
+     \begin{subfigure}[b]{0.49\textwidth}
+         \centering
+         \includegraphics[width=\textwidth]{figs/{alpha0.75_lavaambiguous}.png}
+         \caption{$\alpha = 0.75$}
+         \label{fig:y equals x}
+     \end{subfigure}
+     \hfill
+     \begin{subfigure}[b]{0.49\textwidth}
+         \centering
+         \includegraphics[width=\textwidth]{figs/{alpha0.9_lavaambiguous}.png}
+         \caption{$\alpha = 0.9$}
+         \label{fig:three sin x}
+     \end{subfigure}
+     \hfill
+     
+     \begin{subfigure}[b]{0.49\textwidth}
+         \centering
+         \includegraphics[width=\textwidth]{figs/{alpha0.95_lavaambiguous}.png}
+         \caption{$\alpha = 0.95$}
+         \label{fig:five over x}
+     \end{subfigure}
+          \begin{subfigure}[b]{0.49\textwidth}
+         \centering
+         \includegraphics[width=\textwidth]{figs/{alpha0.99_lavaambiguous}.png}
+         \caption{$\alpha = 0.99$}
+         \label{fig:five over x}
+     \end{subfigure}
+        \caption{Pareto Optimal Policies given different risk-tolerances.}
+        \label{fig:lava_ambiguous_frontiers}
+\end{figure}
+
+
+One thing that I'm confused about is why we need $\alpha$ and $\lambda$. They seem similar, but I get different plots depending on the values. If alpha = 0, then the CVaR is the expected return. I'm going to try running multiple alphas with lambda fixed to zero to see what happens.
+The restuls are in Figure~\ref{fig:varying_alpha}. It shows that higher alpha result in worse expected return and also worse CVaR. This makes sense since CVaR is adversarial wrt alpha.
+
+\begin{figure}
+\centering
+\includegraphics[width=\linewidth]{figs/alpha_range.png}
+\caption{Varying $\alpha$ with $\lambda = 0$.}
+\label{fig:varying_alpha}
+\end{figure}
+
+
+
+
+Another interesting thing is how the policy changes. I need to do some coding to get a better policy visualizer that allows for stochastic policies, but basically, what I see is that for small alpha it avoids red for but large alpha it takes the shortcut through red. It seems that the tail risk is over white features not red. The MAP reward gives a high penalty to white features to make the demonstration look more likely. This seems like a problem with Bayesian IRL. I wonder if using a MaxEnt flavor would help since then it wouldn't care as much about state-action pairs but about full trajectories? 
+
+
+
 	
 \section{TODO}
 Extend this to linear feature approximation.

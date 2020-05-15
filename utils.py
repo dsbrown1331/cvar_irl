@@ -1,6 +1,29 @@
 import numpy as np
 import random
 
+
+def policy_loss(u_sa, mdp_env, opt_u_sa=None):
+    '''Compute policy loss wrt opt_u_sa'''
+    if opt_u_sa is None:
+        #compute optimal policy first
+        opt_u_sa = mdp.solve_mdp_lp(mdp_env)
+    return np.dot(opt_u_sa, mdp_env.r_sa) - np.dot(u_sa, mdp_env.r_sa)
+
+def sample_l2_ball(dim):
+    #generate random normal sample and then normalize to have L2 norm of 1
+    sample = np.random.randn(dim)
+    return sample / np.linalg.norm(sample)
+
+def write_line(array_list, file_writer):
+#write out line to file comma delimited with new line at the end
+    f = file_writer
+    u_sa = array_list
+    for i,sa in enumerate(u_sa):
+        if i < len(u_sa) - 1:
+            f.write("{},".format(sa))
+        else:
+            f.write("{}\n".format(sa))
+
 def get_optimal_policy_from_usa(u_sa, mdp_env):
     num_states, num_actions = mdp_env.num_states, mdp_env.num_actions
     opt_stoch_pi = np.zeros((num_states, num_actions))
@@ -11,6 +34,37 @@ def get_optimal_policy_from_usa(u_sa, mdp_env):
             opt_stoch_pi[s][a] = u_sa[s+a*num_states] / max(s_tot_occupancy, 0.000001)
     return opt_stoch_pi
 
+def print_stochastic_policy_action_probs(u_sa, mdp_env):
+    opt_stoch = get_optimal_policy_from_usa(u_sa, mdp_env)
+    for s in range(mdp_env.get_num_states()):
+        action_prob_str = "state {}: ".format(s)
+        for a in range(mdp_env.get_num_actions()):
+            action_prob_str += "{} = {:.3f}, ".format(mdp_env.get_readable_actions(a), opt_stoch[s,a])
+        print(action_prob_str)
+
+
+def print_policy_occupancies_pretty(u_sa, mdp_env):
+    num_states, num_actions = mdp_env.num_states, mdp_env.num_actions
+    for s in range(num_states):
+        action_prob_str = "state {}: ".format(s)
+        for a in range(mdp_env.num_actions):
+            action_prob_str += "{:.3f}, ".format(u_sa[s+a*num_states])
+            
+        print(action_prob_str)
+
+
+def display_onehot_state_features(mdp_env):
+    state_features = mdp_env.state_features
+    state_features_2d = []
+    cnt = 0
+    for _ in range(mdp_env.num_rows):
+        row_features = ""
+        for _ in range(mdp_env.num_cols):
+            row_features += "{} \t".format(list(state_features[cnt]).index(1))
+            cnt += 1
+        print(row_features)
+        
+    #print_as_grid(state_features_2d, mdp_env)
 
 def print_table_row(vals):
     row_str = ""
@@ -77,3 +131,93 @@ def rollout_from_usa(start, horizon, u_sa, mdp_env):
         #append the terminal state
         demonstration.append((curr_state, None))  #no more actions available
     return demonstration
+
+def u_sa_from_demos(demos, mdp_env):
+    '''takes as input
+    demos: a list of trajectories where each trajectory is a list of (s,a) pairs
+    mdp_env: the mdp with the relevant features
+
+    for now it assumes that the features are only a function of the state
+    '''
+
+    #make sure it is a list of lists of (s,a) pairs
+    assert type(demos) == list
+    assert type(demos[0]) == list
+    assert type(demos[0][0]) == tuple
+    assert len(demos[0][0]) == 2
+
+    feature_cnts = np.zeros(mdp_env.get_reward_dimensionality())
+    for d in demos:
+        for t, s_a in enumerate(d):
+            s,a = s_a
+            feature_cnts += mdp_env.gamma ** t * mdp_env.state_features[s]
+            # print(feature_cnts)
+
+    #normalize by number of demonstrations
+    feature_cnts /= len(demos)
+    
+    return feature_cnts
+
+
+#TODO: maybe try and do one with just feature weights??
+def get_worst_case_state_rewards_ird(posterior, u_E, mdp_env):
+    #based on IRD formulation by Dylan
+    #subtract the expected feature counts as a baseline
+    
+    #go through each feature and find the minimum value
+    baselined_state_features = mdp_env.state_features - u_E
+
+    #posterior is n x k and state features are num_states x k
+
+    #now take the minimum per state
+    state_dists = np.dot(posterior, np.array(baselined_state_features).transpose())
+
+    return np.min(state_dists, axis=0)
+
+
+def get_worst_case_feature_weights_binary_ird(posterior, u_E, mdp_env):
+    #based on IRD formulation by Dylan
+    #subtract the expected feature counts as a baseline
+    
+    #go through each feature and find the minimum value
+    baselined_binary_features = np.eye(mdp_env.get_reward_dimensionality()) - u_E
+
+    # print("baselined features", baselined_binary_features)
+    # print("posterior")
+    # print(posterior)
+
+    #posterior is n x k and state features are num_states x k
+
+    # import matplotlib.pyplot as plt
+    # feature_names = ['dirt', 'grass', 'target', 'lava']
+    # plt.figure()
+    # plt.title("raw posterior")
+    # for w in range(len(posterior[0])):
+    #     plt.plot(posterior[:,w],label=feature_names[w])
+    # plt.legend()
+    
+
+    #now take the minimum per state
+    w_dists = np.dot(posterior, np.array(baselined_binary_features).transpose())
+
+    # print("w_dists")
+    # print(w_dists)
+
+    # print("w sorted")
+    # print(np.sort(w_dists,axis=0))
+
+    # plt.figure()
+    # plt.title("baselined")
+    # for w in range(len(posterior[0])):
+    #     plt.plot(w_dists[:,w],label=feature_names[w])
+    # plt.legend()
+    # plt.show()
+
+    # print()
+
+    min_ws = np.min(w_dists, axis=0)
+    print("min ws", min_ws)
+
+    return min_ws
+
+

@@ -35,13 +35,18 @@ class MDP(Interface):
     def get_state_action_rewards(self):
         pass
 
+    def uses_linear_approximation(self):
+        pass
+
     def transform_to_R_sa(self, reward_weights):
         #mainly used for BIRL to take hypothesis reward and transform it
         #take in representation of reward weights and return vectorized version of R_sa
         #R_sa = [R(s0,a0), .., R(sn,a0), ...R(s0,am),..., R(sn,am)]
         pass
 
-    
+    def get_transition_prob_matrices(self):
+        #return a list of transition matrices for each action a_0 through a_m
+        pass
 
         
 
@@ -55,6 +60,7 @@ class ChainMDP(implements(MDP)):
         self.num_states =  num_states
         self.gamma = gamma
         self.init_dist = init_dist
+        self.terminals = []
        
         self.r_sa = r_sa
 
@@ -65,6 +71,8 @@ class ChainMDP(implements(MDP)):
         #print("P_right\n",self.P_right)
         self.Ps = [self.P_left, self.P_right]
 
+    def get_transition_prob_matrices(self):
+        return self.Ps
 
     def get_num_actions(self):
         return self.num_actions
@@ -88,6 +96,9 @@ class ChainMDP(implements(MDP)):
 
     def get_reward_dimensionality(self):
         return len(self.r_sa)
+    
+    def uses_linear_approximation(self):
+        return False
 
     def set_reward_fn(self, new_reward):
         self.r_sa = new_reward
@@ -127,8 +138,61 @@ class ChainMDP(implements(MDP)):
         return P_pi
         
 
+
+class MachineReplacementMDP(ChainMDP):
+    #basic MDP class that has two actions (left, right), no terminal states and is a chain mdp with deterministic transitions
+    def __init__(self, num_states, r_sa, gamma, init_dist):
+        self.num_actions = 2
+        self.num_rows = 1
+        self.num_cols = num_states
+        self.num_states =  num_states
+        self.gamma = gamma
+        self.init_dist = init_dist
+        self.terminals = []
+       
+        self.r_sa = r_sa
+
+
+        self.P_noop = self.get_transitions(policy="noop")
+        #print("P_left\n",self.P_left)
+        self.P_repair = self.get_transitions(policy="repair")
+        #print("P_right\n",self.P_right)
+        self.Ps = [self.P_noop, self.P_repair]
+
+
+    def get_readable_actions(self, action_num):
+        if action_num == 0:
+            return "noop" #no-op
+        elif action_num == 1:
+            return "repair" #repair
+        else:
+            print("error, only two possible actions")
+            sys.exit()
+
+    
+    def get_transitions(self, policy):
+        P_pi = np.zeros((self.num_states, self.num_states))
+        if policy == "noop":  #action 0
+            #always transition to one state farther in chain unless at the last state where you go to the beginning
+            for c in range(self.num_cols):
+                if c < self.num_cols - 1:
+                    #continue to the right
+                    P_pi[c, c + 1] = 1.0
+                else:
+                    #go back to the beginning
+                    P_pi[c,0] = 1.0
+            
+        elif policy == "repair":  #action 1
+            #always transition back to the first state
+            for c in range(self.num_cols):
+                P_pi[c,0] = 1.0
+                
+        return P_pi
+        
+
+
 class BasicGridMDP(implements(MDP)):
-    #basic MDP class that has four actions, no terminal states and is a grid with deterministic transitions
+    #basic MDP class that has four actions, possible terminal states and is a grid with deterministic transitions
     def __init__(self, num_rows, num_cols, r_s, gamma, init_dist, terminals = [], debug=False):
         self.num_actions = 4
         self.num_rows = num_rows
@@ -151,6 +215,10 @@ class BasicGridMDP(implements(MDP)):
         self.P_down = self.get_transitions(policy="down")
         if self.debug: print("P_down\n",self.P_down)
         self.Ps = [self.P_left, self.P_right, self.P_up, self.P_down] #actions:0,1,2,3
+
+
+    def get_transition_prob_matrices(self):
+        return self.Ps
 
     def get_num_actions(self):
         return self.num_actions
@@ -180,6 +248,9 @@ class BasicGridMDP(implements(MDP)):
     def get_reward_dimensionality(self):
         return len(self.r_s)
 
+    #NOTE: the dimensionality still needs to be checked.
+    def uses_linear_approximation(self):
+        return False
 
     def get_state_action_rewards(self):
         return self.r_sa
@@ -295,6 +366,8 @@ class FeaturizedGridMDP(BasicGridMDP):
     def get_reward_dimensionality(self):
         return len(self.feature_weights)
 
+    def uses_linear_approximation(self):
+        return True
 
     def set_reward_fn(self, new_reward):
         #input is the new_reward weights
@@ -308,11 +381,17 @@ class FeaturizedGridMDP(BasicGridMDP):
 
 
     def transform_to_R_sa(self, reward_weights):
-        #assumes that inputs are the reward feature weights
+        #assumes that inputs are the reward feature weights or state rewards
         #returns the vectorized R_sa 
         
         #first get R_s
-        R_s = np.dot(self.state_features, reward_weights)
+        if len(reward_weights) == self.get_reward_dimensionality():
+            R_s = np.dot(self.state_features, reward_weights)
+        elif len(reward_weights) == self.num_states:
+            R_s = reward_weights
+        else:
+            print("Error, reward weights should be features or state rewards")
+            sys.exit()
         return np.tile(R_s, self.num_actions)
         
 
@@ -356,14 +435,21 @@ def solve_mdp_lp(mdp_env, reward_sa=None, debug=False):
     I_s = np.eye(mdp_env.num_states)
     gamma = mdp_env.gamma
 
-    if mdp_env.num_actions == 4:
-        A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
-                        I_s - gamma * mdp_env.P_right.transpose(),
-                        I_s - gamma * mdp_env.P_up.transpose(),
-                        I_s - gamma * mdp_env.P_down.transpose()),axis =1)
-    else:
-        A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
-                        I_s - gamma * mdp_env.P_right.transpose()),axis =1)
+    I_minus_gamma_Ps = []
+    for P_a in mdp_env.get_transition_prob_matrices():
+        I_minus_gamma_Ps.append(I_s - gamma * P_a.transpose())
+
+    A_eq = np.concatenate(I_minus_gamma_Ps, axis=1)
+
+    # if mdp_env.num_actions == 4:
+    #     A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
+    #                     I_s - gamma * mdp_env.P_right.transpose(),
+    #                     I_s - gamma * mdp_env.P_up.transpose(),
+    #                     I_s - gamma * mdp_env.P_down.transpose()),axis =1)
+    # else:
+        
+    #     A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
+    #                     I_s - gamma * mdp_env.P_right.transpose()),axis =1)
     b_eq = mdp_env.init_dist
     if reward_sa is not None:
         c = -1.0 * reward_sa  #we want to maximize r_sa^T c so make it negative since scipy minimizes by default
@@ -387,19 +473,87 @@ def solve_mdp_lp(mdp_env, reward_sa=None, debug=False):
     #calculate the optimal policy
     return u_sa
 
-def solve_max_cvar_policy(mdp_env, u_expert, R, p_R, alpha):
+
+def solve_lpal_policy(mdp_env, u_expert, debug=False):
     '''input mdp_env: the mdp
         u_expert: the state-action occupancies of the expert
-        R: a matrix with each column a reward hypothesis
+            
+        returns: u_sa from the LPAL algorithm
+    '''
+
+
+    I_s = np.eye(mdp_env.num_states)
+    gamma = mdp_env.gamma
+
+    I_minus_gamma_Ps = []
+    for P_a in mdp_env.get_transition_prob_matrices():
+        I_minus_gamma_Ps.append(I_s - gamma * P_a.transpose())
+
+    A_eq = np.concatenate(I_minus_gamma_Ps, axis=1)
+
+    # if mdp_env.num_actions == 4:
+    #     A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
+    #                     I_s - gamma * mdp_env.P_right.transpose(),
+    #                     I_s - gamma * mdp_env.P_up.transpose(),
+    #                     I_s - gamma * mdp_env.P_down.transpose()),axis =1)
+    # else:
+        
+    #     A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
+    #                     I_s - gamma * mdp_env.P_right.transpose()),axis =1)
+    b_eq = mdp_env.init_dist
+    if reward_sa is not None:
+        c = -1.0 * reward_sa  #we want to maximize r_sa^T c so make it negative since scipy minimizes by default
+    else:
+        c = -1.0 * mdp_env.r_sa  #we want to maximize r_sa^T c so make it negative since scipy minimizes by default
+
+    sol = linprog(c, A_eq=A_eq, b_eq = b_eq)
+    #minimize:
+    #c @ x
+    #such that:
+    #A_ub @ x <= b_ub
+    #A_eq @ x == b_eq
+    #all variables are non-negative by default
+    #print(sol)
+
+    if debug: print("expeced value MDP LP", -sol['fun'])  #need to negate the value to get the maximum
+    #print("state_action occupancies", sol['x'])
+    u_sa = sol['x'] 
+
+    #print("expected value dot product", np.dot(u_sa, mdp_env.r_sa))
+    #calculate the optimal policy
+    return u_sa
+
+
+
+
+def solve_max_cvar_policy(mdp_env, u_expert, posterior_rewards, p_R, alpha, debug=False, lamda = 0.0):
+    '''input mdp_env: the mdp
+        u_expert: the state-action occupancies of the expert
+        posterior_rewards: a matrix with each column a reward hypothesis or each column a weight vector
         p_R: a posterior probability mass function over the reward hypotheses
         alpha: the risk sensitivity, higher is more conservative. We look at the (1-alpha)*100% average worst-case
+        lamda: the amount to weight expected return versus CVaR if 0 then fully robust, if 1, then fully return maximizing
 
-        returns the occupancy frequencies of the policy optimal wrt cvar
+        returns: tuple (u_cvar, cvar) the occupancy frequencies of the policy optimal wrt cvar and the actual cvar value
     '''
+
+
     num_states, num_actions, gamma = mdp_env.num_states, mdp_env.num_actions, mdp_env.gamma
-    _,n = R.shape  #k is dimension of reward function and n is the number of samples in the posterior
+    weight_dim, n = posterior_rewards.shape  #weight_dim is dimension of reward function weights and n is the number of samples in the posterior
     #get number of state-action occupancies
+
+    #NOTE: k may be much larger than weight_dim!
     k = mdp_env.num_states * mdp_env.num_actions
+
+    #need to redefine R if using linear reward approximation with features and feature weights since R will be weight vectors
+    R = np.zeros((k,n))
+    for i in range(n):
+        #print(posterior_rewards[:,i])
+        R[:,i] = mdp_env.transform_to_R_sa(posterior_rewards[:,i]) #this method is overwritten by each MDP class to do the right thing
+        #print(np.reshape(R[:25,i],(5,5)))
+    #print(R)
+    #input()
+
     posterior_probs = p_R
     #new objective is 
     #max \sigma - 1/(1-\alpha) * p^T z for vector of auxiliary variables z.
@@ -407,9 +561,10 @@ def solve_max_cvar_policy(mdp_env, u_expert, R, p_R, alpha):
     #so the decision variables are (in the following order) all the u(s,a) and sigma, and all the z's.
 
     #we want to maximize so take the negative of this vector and minimize via scipy 
-    c_cvar = -1. * np.concatenate((np.zeros(num_states * num_actions), #for the u(s,a)'s not in objective any more
-                        np.ones(1),                 #for sigma
-                        -1.0/(1.0 - alpha) * posterior_probs))  #for the auxiliary variables z
+    u_coeff = np.dot(R, posterior_probs)
+    c_cvar = -1. * np.concatenate((lamda * u_coeff, #for the u(s,a)'s (if lamda = 0 then no in objective, this is the lambda * p^T R^T u)
+                        (1-lamda) * np.ones(1),                 #for sigma
+                        (1-lamda) * -1.0/(1.0 - alpha) * posterior_probs))  #for the auxiliary variables z
 
     #constraints: for each of the auxiliary variables we have a constraint >=0 and >= the stuff inside the ReLU
 
@@ -425,7 +580,15 @@ def solve_max_cvar_policy(mdp_env, u_expert, R, p_R, alpha):
         auxiliary_constraints[i,:] = z_row
 
     #add the upper bounds for these constraints:
-    auxiliary_b = -1. * np.dot(R.transpose(), u_expert)
+    #check to see if we have mu or u
+    if k != len(u_expert):
+        #we have feature approximation and have mu rather than u, at least we should
+        #print(weight_dim)
+        #print(u_expert)
+        assert len(u_expert) == weight_dim
+        auxiliary_b = -1. * np.dot(posterior_rewards.transpose(), u_expert)
+    else:
+        auxiliary_b = -1. * np.dot(R.transpose(), u_expert)
 
     #add the non-negativitity constraints for the vars u(s,a) and z(R). 
     #mu's greater than or equal to zero
@@ -437,14 +600,20 @@ def solve_max_cvar_policy(mdp_env, u_expert, R, p_R, alpha):
 
     #don't forget the normal MDP constraints over the mu(s,a) terms
     I_s = np.eye(num_states)
-    if mdp_env.num_actions == 4:
-        A_eq = np.concatenate(( I_s - gamma * mdp_env.P_left.transpose(),
-                                I_s - gamma * mdp_env.P_right.transpose(),
-                                I_s - gamma * mdp_env.P_up.transpose(),
-                                I_s - gamma * mdp_env.P_down.transpose()),axis =1)
-    else:
-        A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
-                               I_s - gamma * mdp_env.P_right.transpose()),axis =1)
+    I_minus_gamma_Ps = []
+    for P_a in mdp_env.get_transition_prob_matrices():
+        I_minus_gamma_Ps.append(I_s - gamma * P_a.transpose())
+
+    A_eq = np.concatenate(I_minus_gamma_Ps, axis=1)
+
+    # if mdp_env.num_actions == 4:
+    #     A_eq = np.concatenate(( I_s - gamma * mdp_env.P_left.transpose(),
+    #                             I_s - gamma * mdp_env.P_right.transpose(),
+    #                             I_s - gamma * mdp_env.P_up.transpose(),
+    #                             I_s - gamma * mdp_env.P_down.transpose()),axis =1)
+    # else:
+    #     A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
+    #                            I_s - gamma * mdp_env.P_right.transpose()),axis =1)
     b_eq = mdp_env.init_dist
     A_eq_plus = np.concatenate((A_eq, np.zeros((mdp_env.num_states,1+n))), axis=1)  #add zeros for sigma and the auxiliary z's
 
@@ -455,27 +624,52 @@ def solve_max_cvar_policy(mdp_env, u_expert, R, p_R, alpha):
 
     #solve the LP
     sol = linprog(c_cvar, A_eq=A_eq_plus, b_eq = b_eq, A_ub=A_cvar, b_ub = b_cvar, bounds=(None, None)) #TODO:might be good to explicitly make the bounds here rather than via constraints...
-    print("solution to optimizing CVaR")
-    print(sol)
-    cvar = -sol['fun'] #take negative since we minimized negative CVaR but really wanted to maximize positive CVaR
+    if debug: print("solution to optimizing CVaR")
+    if debug: print(sol)
+    
+    if sol['success'] is False:
+        #print(sol)
+        print("didn't solve correctly!")
+        input("Continue?")
     #the solution of the LP corresponds to the CVaR
     var_sigma = sol['x'][k] #get sigma (this is VaR (at least close))
     cvar_opt_usa = sol['x'][:k]
-    print("CVaR = ", cvar)
-    print("policy u(s,a) = ", cvar_opt_usa)
+
+    #calculate the CVaR of the solution
+    if k != len(u_expert):
+        relu_part = var_sigma * np.ones(n) - np.dot(np.transpose(R), cvar_opt_usa) + np.dot(np.transpose(posterior_rewards), u_expert)
+    else:
+        relu_part = var_sigma * np.ones(n) - np.dot(np.transpose(R), cvar_opt_usa) + np.dot(np.transpose(R), u_expert)
+    #take max with zero
+    relu_part[relu_part < 0] = 0.0
+    cvar = var_sigma - 1.0/(1 - alpha) * np.dot(posterior_probs, relu_part)
+
+    #calculate expected return of optimized policy
+    cvar_exp_ret = np.dot( np.dot(R, posterior_probs), cvar_opt_usa)
+
+    if debug: print("CVaR = ", cvar)
+    if debug: print("policy u(s,a) = ", cvar_opt_usa)
     cvar_opt_stoch_pi = utils.get_optimal_policy_from_usa(cvar_opt_usa, mdp_env)
-    print("CVaR opt stochastic policy")
-    print(cvar_opt_stoch_pi)
+    if debug: print("CVaR opt stochastic policy")
+    if debug: print(cvar_opt_stoch_pi)
 
-    policy_losses = np.dot(R.transpose(), cvar_opt_usa - u_expert)
-    print("policy losses:", policy_losses)
-    print("expert returns:", np.dot(R.transpose(), u_expert))
-    print("my returns:", np.dot(R.transpose(), cvar_opt_usa))
+    if debug:
+        if k != len(u_expert):
+            policy_losses = np.dot(R.transpose(), cvar_opt_usa)  - np.dot(posterior_rewards.transpose(), u_expert)
+        else:
+            policy_losses = np.dot(R.transpose(), cvar_opt_usa - u_expert)
+        print("policy losses:", policy_losses)
+    if debug: 
+        if k != len(u_expert):
+            print("expert returns:", np.dot(posterior_rewards.transpose(), u_expert))
+        else:
+            print("expert returns:", np.dot(R.transpose(), u_expert))
+    if debug: print("my returns:", np.dot(R.transpose(), cvar_opt_usa))
 
-    return cvar_opt_usa
+    return cvar_opt_usa, cvar, cvar_exp_ret
 
 
-def solve_minCVaR_reward(mdp_env, u_expert, R, p_R, alpha):
+def solve_minCVaR_reward(mdp_env, u_expert, posterior_rewards, p_R, alpha):
     '''
     Solves the dual problem
       input:
@@ -489,15 +683,36 @@ def solve_minCVaR_reward(mdp_env, u_expert, R, p_R, alpha):
         The adversarial reward and the q weights on the reward posterior. Optimizing for this reward should yield the CVaR optimal policy
 
     '''
+    weight_dim, n = posterior_rewards.shape  #weight_dim is dimension of reward function weights and n is the number of samples in the posterior
+    #get number of state-action occupancies
+
+    #NOTE: k may be much larger than weight_dim!
+    k = mdp_env.num_states * mdp_env.num_actions
+
     num_states, num_actions, gamma = mdp_env.num_states, mdp_env.num_actions, mdp_env.gamma
     p0 = mdp_env.init_dist
-    k,n = R.shape  #k is dimension of reward function and n is the number of samples in the posterior
+
+    #need to redefine R if using linear reward approximation with features and feature weights since R will be weight vectors
+    R = np.zeros((k,n))
+    for i in range(n):
+        #print(posterior_rewards[:,i])
+        R[:,i] = mdp_env.transform_to_R_sa(posterior_rewards[:,i]) #this method is overwritten by each MDP class to do the right thing
+        #print(np.reshape(R[:25,i],(5,5)))
+    #print(R)
+    #input()
+
+
+    #k,n = R.shape  #k is dimension of reward function and n is the number of samples in the posterior
     posterior_probs = p_R
     #objective is min p_0^Tv - u_E^T R q
 
     #the decision variables are (in the following order) q (an element for each reward in the posterior) and v(s) for all s
     #coefficients on objective
-    c_q = np.concatenate((np.dot(-R.transpose(), u_expert), p0))  #for the auxiliary variables z
+    if k != len(u_expert):
+        #function approximation, u_expert is expected feature counts
+        c_q = np.concatenate((np.dot(-posterior_rewards.transpose(), u_expert), p0))  #for the auxiliary variables z
+    else:
+        c_q = np.concatenate((np.dot(-R.transpose(), u_expert), p0))  #for the auxiliary variables z
 
     #constraints: 
 
@@ -513,14 +728,21 @@ def solve_minCVaR_reward(mdp_env, u_expert, R, p_R, alpha):
 
     #next do the value iteration equations
     I_s = np.eye(num_states)
-    if mdp_env.num_actions == 4:
-        trans_dyn = np.concatenate(( I_s - gamma * mdp_env.P_left,
-                                I_s - gamma * mdp_env.P_right,
-                                I_s - gamma * mdp_env.P_up,
-                                I_s - gamma * mdp_env.P_down), axis=0)
-    else:
-        trans_dyn = np.concatenate((I_s - gamma * mdp_env.P_left,
-                               I_s - gamma * mdp_env.P_right), axis=0)
+    #TODO: debug this and check it is more general using Ps (see cvar method)
+    I_minus_gamma_Ps = []
+    for P_a in mdp_env.get_transition_prob_matrices():
+        I_minus_gamma_Ps.append(I_s - gamma * P_a)
+
+    trans_dyn = np.concatenate(I_minus_gamma_Ps, axis=0)
+
+    # if mdp_env.num_actions == 4:
+    #     trans_dyn = np.concatenate(( I_s - gamma * mdp_env.P_left,
+    #                             I_s - gamma * mdp_env.P_right,
+    #                             I_s - gamma * mdp_env.P_up,
+    #                             I_s - gamma * mdp_env.P_down), axis=0)
+    # else:
+    #     trans_dyn = np.concatenate((I_s - gamma * mdp_env.P_left,
+    #                            I_s - gamma * mdp_env.P_right), axis=0)
     
     A_vi = np.concatenate((R, -trans_dyn), axis=1)
     b_vi = np.zeros(num_states * num_actions)
@@ -537,8 +759,8 @@ def solve_minCVaR_reward(mdp_env, u_expert, R, p_R, alpha):
 
     #solve the LP
     sol = linprog(c_q, A_eq=A_eq, b_eq=b_eq, A_ub=A_leq, b_ub=b_geq, bounds=(None, None)) #TODO:might be good to explicitly make the bounds here rather than via constraints...
-    print("solution to optimizing for CVaR reward")
-    print(sol)
+    #print("solution to optimizing for CVaR reward")
+    #print(sol)
     cvar = sol['fun'] #I think the objective value should be the same?
     #the solution of the LP corresponds to the CVaR
     q = sol['x'][:n] #get sigma (this is VaR (at least close))
@@ -547,9 +769,9 @@ def solve_minCVaR_reward(mdp_env, u_expert, R, p_R, alpha):
     print("policy v(s) under Rq = ", values)
     print("expected value", np.dot(mdp_env.init_dist, values))
     
-    print("q weights:", q)
+    #print("q weights:", q)
     cvar_reward_fn = np.dot(R,q)
-    print("CVaR reward Rq =", cvar_reward_fn)
+    #print("CVaR reward Rq =", cvar_reward_fn)
 
     return cvar_reward_fn, q
 
@@ -578,6 +800,17 @@ def get_policy_transitions(stoch_pi, mdp_env):
                 cum_prob += stoch_pi[s1,a] * mdp_env.get_transition_prob(s1,a,s2)
             P_pi[s1,s2] =  cum_prob
     return P_pi
+
+def get_policy_state_occupancy_frequencies(stoch_policy, mdp_env):
+    P_pi = get_policy_transitions(stoch_policy, mdp_env)
+    A = np.eye(mdp_env.get_num_states()) - mdp_env.gamma * P_pi.transpose()
+    return np.linalg.solve(A, mdp_env.init_dist)
+    
+def get_policy_expected_return(stoch_policy, mdp_env):
+    u_pi = get_policy_state_occupancy_frequencies(stoch_policy, mdp_env)
+    R_pi = get_policy_rewards(stoch_policy, mdp_env.r_sa)
+    return np.dot(u_pi, R_pi)
+
 
 
 def two_by_two_mdp():

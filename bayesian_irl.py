@@ -7,7 +7,7 @@ import utils
 import mdp_worlds
 
 class BayesianIRL:
-    def __init__(self, mdp_env, beta, step_stdev, debug=False):
+    def __init__(self, mdp_env, beta, step_stdev, debug=False, mcmc_norm = None):
         self.mdp_env = copy.deepcopy(mdp_env) #deep copy just in case so we don't mess up original 
         self.beta = beta
         self.step_stdev = step_stdev
@@ -15,6 +15,7 @@ class BayesianIRL:
         self.num_actions = mdp_env.get_num_actions()
         self.num_states = mdp_env.get_num_states()
         self.debug = debug
+        self.mcmc_norm = mcmc_norm  #l2, inf, or l1
 
 
     def log_likelihood(self, reward_hypothesis, q_values, demonstrations):
@@ -32,26 +33,44 @@ class BayesianIRL:
                 #plt.show()
         return log_sum
 
-    #going to sample from L2-sphere
+    #going to sample from L2-sphere but with negative weights 
     def sample_init_reward(self):
-        # weights = np.random.normal(0, self.step_stdev, self.reward_dim)
-        # return weights / np.linalg.norm(weights)
+        norm = self.mcmc_norm
+        if norm is None or norm == "inf":
+        #L-inf ball
+            weights = 2*np.random.rand(self.reward_dim) - 1
+            
+        elif norm == "l2":
+        #L2-ball
+            weights = np.random.normal(0, self.step_stdev, self.reward_dim)
+            weights /= np.linalg.norm(weights)
 
+        elif norm == "l1":
         #l1-ball, kind of 
-        weights = np.random.normal(0, self.step_stdev, self.reward_dim)
-        return weights / np.sum(np.abs(weights))
+            weights = np.random.normal(0, self.step_stdev, self.reward_dim)
+            weights = - np.abs(weights)
+            weights /= np.sum(np.abs(weights))
+        
+        return weights
         
 
     #generate normalized weights ||w||_2 =1
     def generate_proposal_weights(self, weights):
+        norm = self.mcmc_norm
         new_weights = weights.copy()
         new_weights += np.random.normal(0, self.step_stdev, weights.shape)
-        
-        #normalize L2
-        #new_weights /= np.linalg.norm(new_weights)
+        if norm == "inf":
+            #normalize L-inf
+            new_weights[new_weights > 1.] = 1.0
+            new_weights[new_weights < -1.] = -1.0
 
+        elif norm == "l2":
+        #normalize L2
+            new_weights /= np.linalg.norm(new_weights)
+
+        elif norm == "l1":
         #L1
-        new_weights /= np.sum(np.abs(new_weights))
+            new_weights /= np.sum(np.abs(new_weights))
         return new_weights
 
 
@@ -77,8 +96,8 @@ class BayesianIRL:
 
 
 
-    def sample_posterior(self, demonstrations, num_samples):
-        #TODO: for now we assume preprocessing of demos if they come in list of list: we want them list of state-action pairs
+    def sample_posterior(self, demonstrations, num_samples, print_map_updates=False):
+        #TODO: may require preprocessing of demos since this requires them to be a list of state-action pairs
         demos_sa = []
         if type(demonstrations[0]) is tuple and len(demonstrations[0]) == 2:
             #each element in demonstrations is a state-action pair so no preprocessing needed
@@ -101,7 +120,7 @@ class BayesianIRL:
 
         #sample random reward hypothesis to start
         curr_weights = self.sample_init_reward()
-        print(curr_weights)
+        #print(curr_weights)
         curr_occupancies, curr_q_values = self.solve_optimal_policy(curr_weights)
         #compute log likelihood over demonstrations
         curr_ll =  self.log_likelihood(curr_weights, curr_q_values, demos_sa)
@@ -138,13 +157,13 @@ class BayesianIRL:
                 curr_occupancies = proposal_occupancies
                 #update MAP
                 if prop_ll > best_ll:
-                    print(step)
+                    if print_map_updates: print(step)
                     if self.debug: utils.print_policy_from_occupancies(proposal_occupancies, self.mdp_env)
                     if self.debug: print("Q(s,a)", proposal_q_values)
                     best_ll = prop_ll
                     map_weights = proposal_weights.copy()
                     map_occupancy = proposal_occupancies.copy()
-                    print("w_map", map_weights, "loglik", best_ll)
+                    if print_map_updates: print("w_map", map_weights, "loglik = {:.4f}".format(best_ll))
             else:
                 if self.debug: print("reject")
                 reward_samples.append(curr_weights)
@@ -152,8 +171,10 @@ class BayesianIRL:
             #print out last reward sampled
             #print(reward_samples[-1])
                 
+        print("w_map", map_weights, "loglik", best_ll)
         print("accepted/total = {}/{} = {}".format(accept_cnt, num_samples, accept_cnt / num_samples))
-
+        # if best_ll < -10:
+        #     input("Didn't seem to converge... Check likelihoods and demos... Continue?")
         return map_weights, map_occupancy, np.array(reward_samples), np.array(occupancy_frequencies)
 
         
