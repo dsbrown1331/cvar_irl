@@ -31,15 +31,25 @@ def get_optimal_policy_from_usa(u_sa, mdp_env):
         #compute the total occupancy for that state across all actions
         s_tot_occupancy = np.sum(u_sa[s::num_states])
         for a in range(num_actions):
-            opt_stoch_pi[s][a] = u_sa[s+a*num_states] / max(s_tot_occupancy, 0.000001)
+            opt_stoch_pi[s][a] = u_sa[s+a*num_states] / max(s_tot_occupancy, 0.00000001)
     return opt_stoch_pi
+
 
 def print_stochastic_policy_action_probs(u_sa, mdp_env):
     opt_stoch = get_optimal_policy_from_usa(u_sa, mdp_env)
+    print_stoch_policy(opt_stoch, mdp_env)
+    # for s in range(mdp_env.get_num_states()):
+    #     action_prob_str = "state {}: ".format(s)
+    #     for a in range(mdp_env.get_num_actions()):
+    #         action_prob_str += "{} = {:.3f}, ".format(mdp_env.get_readable_actions(a), opt_stoch[s,a])
+    #     print(action_prob_str)
+
+
+def print_stoch_policy(stoch_pi, mdp_env):
     for s in range(mdp_env.get_num_states()):
         action_prob_str = "state {}: ".format(s)
         for a in range(mdp_env.get_num_actions()):
-            action_prob_str += "{} = {:.3f}, ".format(mdp_env.get_readable_actions(a), opt_stoch[s,a])
+            action_prob_str += "{} = {:.3f}, ".format(mdp_env.get_readable_actions(a), stoch_pi[s,a])
         print(action_prob_str)
 
 
@@ -51,6 +61,16 @@ def print_policy_occupancies_pretty(u_sa, mdp_env):
             action_prob_str += "{:.3f}, ".format(u_sa[s+a*num_states])
             
         print(action_prob_str)
+
+
+def print_q_vals_pretty(q_vals, mdp_env):
+    num_states, num_actions = mdp_env.num_states, mdp_env.num_actions
+    for s in range(num_states):
+        q_val_str = "state {}: ".format(s)
+        for a in range(mdp_env.num_actions):
+            q_val_str += "{:.3f}, ".format(q_vals[s+a*num_states])
+            
+        print(q_val_str)
 
 
 def display_onehot_state_features(mdp_env):
@@ -81,6 +101,13 @@ def logsumexp(x):
         sum_exp += np.exp(xi - max_x)
     return max(x) + np.log(sum_exp)
 
+def stable_softmax(x):
+    z = x - max(x)
+    numerator = np.exp(z)
+    denominator = np.sum(numerator)
+    softmax = numerator/denominator
+    return softmax
+
 def print_policy_from_occupancies(proposal_occupancies, mdp_env):
     policy = get_optimal_policy_from_usa(proposal_occupancies, mdp_env)
     cnt = 0
@@ -93,6 +120,33 @@ def print_policy_from_occupancies(proposal_occupancies, mdp_env):
                 row_str += ".\t"  #denote terminal with .
             cnt += 1
         print(row_str)
+
+def get_policy_string_from_occupancies(u_sa, mdp_env):
+    #get stochastic policy
+    opt_stoch = get_optimal_policy_from_usa(u_sa, mdp_env)
+    cnt = 0
+    policy_string_list = []
+    for s in range(mdp_env.num_states):
+        if s in mdp_env.terminals:
+            policy_string_list.append(".")
+        else:
+            action_str = ""
+            for a in range(mdp_env.num_actions):
+                if opt_stoch[s,a] > 0.01:
+                    action_str += mdp_env.get_readable_actions(a)
+            policy_string_list.append(action_str)
+    return policy_string_list
+
+    for r in range(mdp_env.num_rows):
+        row_str = ""
+        for c in range(mdp_env.num_cols):
+            if cnt not in mdp_env.terminals:
+                row_str += mdp_env.get_readable_actions(np.argmax(policy[cnt])) + "\t"
+            else:
+                row_str += ".\t"  #denote terminal with .
+            cnt += 1
+        print(row_str)
+
 
 def print_as_grid(x, mdp_env):
     #print into a num_rows by num_cols grid
@@ -219,5 +273,21 @@ def get_worst_case_feature_weights_binary_ird(posterior, u_E, mdp_env):
     print("min ws", min_ws)
 
     return min_ws
+
+
+def convert_w_to_rsa(W, mdp_env):
+    k = mdp_env.num_states * mdp_env.num_actions
+    n,w_dim = W.shape
+    
+
+    #need to redefine R if using linear reward approximation with features and feature weights since R will be weight vectors
+    R = np.zeros((n,k))
+    for i in range(n):
+        #print(posterior_rewards[:,i])
+        R[i,:] = mdp_env.transform_to_R_sa(W[i,:]) #this method is overwritten by each MDP class to do the right thing
+        #print(np.reshape(R[:25,i],(5,5)))
+    #print(R)
+    #input()
+    return R
 
 

@@ -2,6 +2,180 @@ import mdp
 import numpy as np
 import utils
 
+
+def windy_cliff_world_small(slip_prob):
+    #trying to replicate the ambiguous lava domain from Dylan's IRD paper figure 2 (a)
+    #four features, 10x10 grid
+
+    #trying with less grass and fewer starting states
+    #setting all starting states to be dirt
+
+    num_rows = 3
+    num_cols = 3
+    num_states = num_rows * num_cols
+    #four types of terrain
+    num_features = 2
+    d = (1,0)
+    c = (0,1)
+    #create one-hot features
+    f_vecs = np.eye(num_features)
+    features = [tuple(f) for f in f_vecs]
+
+
+    state_features = np.array([#d,d,d,
+                               d,d,d,
+                               d,d,d,
+                               d,c,d])
+    weights = np.array([-1,0])
+    
+    gamma = 0.99
+    init_dist = np.zeros(num_states)
+    init_state = num_cols * (num_rows - 1)
+    # init_states = [init_state]
+    # for si in init_states:
+    #     state_features[si] = d
+    #     init_dist[si] = 1.0 / len(init_states)
+    term_states = [num_states - 1] #no terminal
+    init_dist = 1/(num_states) * np.ones(num_states)
+    print("init states", init_dist)
+    print("term states", term_states)
+    
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+
+    #set transition dynamics
+    mdp_env.Ps = mdp.get_windy_down_const_prob_transitions(mdp_env, slip_prob)
+
+    #set transitions for cliff to go to back to init state
+    for s in range(num_states):
+        if (state_features[s] == c).all():
+            for P in mdp_env.Ps:
+                P[s,:] = np.zeros(num_states)
+                P[s,init_state] = 1.
+
+
+    # for i,P in enumerate(mdp_env.Ps):
+    #     print("action dir " + mdp_env.get_readable_actions(i))
+    #     print(P)
+
+    return mdp_env
+
+
+def windy_cliff_world_large(slip_prob):
+    #trying to replicate the ambiguous lava domain from Dylan's IRD paper figure 2 (a)
+    #four features, 10x10 grid
+
+    #trying with less grass and fewer starting states
+    #setting all starting states to be dirt
+
+    num_rows = 6
+    num_cols = 7
+    num_states = num_rows * num_cols
+    #four types of terrain
+    num_features = 3
+    d = (1,0,0)
+    c = (0,1,0)
+    t = (0,0,1)
+    #create one-hot features
+    f_vecs = np.eye(num_features)
+    features = [tuple(f) for f in f_vecs]
+
+
+    state_features = np.array([d,d,d,d,d,d,d,
+                               d,d,d,d,d,d,d,
+                               d,d,d,d,d,d,d,
+                               d,d,d,d,d,d,d,
+                               d,d,d,d,d,d,d,
+                               d,c,c,c,c,t,d])
+    weights = np.array([-1,-100,+1])
+    
+    gamma = 0.99
+    init_dist = np.zeros(num_states)
+    init_state = num_cols * (num_rows - 1)
+    # init_states = [init_state]
+    # for si in init_states:
+    #     state_features[si] = d
+    #     init_dist[si] = 1.0 / len(init_states)
+    #term_states = [num_states - 1] #no terminal
+    term_states = []
+    init_dist = 1/(num_states) * np.ones(num_states)
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+
+    #set transition dynamics
+    mdp_env.Ps = mdp.get_windy_down_const_prob_transitions(mdp_env, slip_prob)
+
+    #set transitions for cliff to go to back to init state
+    for s in range(num_states):
+        if (state_features[s] == c).all():
+            for P in mdp_env.Ps:
+                P[s,:] = np.zeros(num_states)
+                P[s,init_state] = 1.
+
+
+    # for i,P in enumerate(mdp_env.Ps):
+    #     print("action dir " + mdp_env.get_readable_actions(i))
+    #     print(P)
+
+    return mdp_env
+
+
+def windy_cliff_world(slip_prob):
+    #trying to replicate the ambiguous lava domain from Dylan's IRD paper figure 2 (a)
+    #four features, 10x10 grid
+
+    #trying with less grass and fewer starting states
+    #setting all starting states to be dirt
+
+    num_rows = 5
+    num_cols = 5
+    num_states = num_rows * num_cols
+    #four types of terrain
+    num_features = 3
+    d = (1,0,0)
+    c = (0,1,0)
+    t = (0,0,1)
+    #create one-hot features
+    f_vecs = np.eye(num_features)
+    features = [tuple(f) for f in f_vecs]
+
+
+    state_features = np.array([d,d,d,d,d,
+                               d,d,d,d,d,
+                               d,d,d,d,d,
+                               d,d,d,d,d,
+                               d,c,c,c,t])
+    weights = np.array([-1,-100,+1])
+    
+    gamma = 0.99
+    init_dist = np.zeros(num_states)
+    init_state = num_cols * (num_rows - 1)
+    # init_states = [init_state]
+    # for si in init_states:
+    #     state_features[si] = d
+    #     init_dist[si] = 1.0 / len(init_states)
+    #term_states = [num_states - 1] #no terminal
+    term_states = []
+    init_dist = 1/(num_states) * np.ones(num_states)
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+
+    #set transition dynamics
+    mdp_env.Ps = mdp.get_windy_down_const_prob_transitions(mdp_env, slip_prob)
+
+    #set transitions for cliff to go to back to init state
+    for s in range(num_states):
+        if (state_features[s] == c).all():
+            for P in mdp_env.Ps:
+                P[s,:] = np.zeros(num_states)
+                P[s,init_state] = 1.
+
+
+    # for i,P in enumerate(mdp_env.Ps):
+    #     print("action dir " + mdp_env.get_readable_actions(i))
+    #     print(P)
+
+    return mdp_env
+
+
+
 def machine_teaching_toy():
     num_rows = 2
     num_cols = 3
@@ -26,7 +200,7 @@ def machine_teaching_toy_featurized():
     gamma = 0.9
     init_dist = 1/(num_states) * np.ones(num_states)
     terminals = [0]
-    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, terminals, True)
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, terminals, False)
     return mdp_env
 
 
@@ -53,6 +227,79 @@ def lava_ambiguous_aaai18():
     init_dist = 1/(num_states) * np.ones(num_states)
     mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
     return mdp_env
+
+
+def lava_ambiguous_corridor():
+    num_rows = 3
+    num_cols = 5
+    num_states = num_rows * num_cols
+    white = (1,0)
+    red = (0,1)
+    state_features = np.array([white, white, white, white, white,
+                               white, red, red, red, red,
+                               white, white, white, white, white])
+    weights = np.array([-0.1, -0.9])#np.array([-0.26750391, -0.96355677])#np.array([-.18, -.82])
+    weights = weights / np.linalg.norm(weights)
+    print(weights)
+    gamma = 0.99
+    init_dist = np.zeros(num_states)
+    # init_states = [5,4]
+    # for si in init_states:
+    #     init_dist[si] = 1.0 / len(init_states)
+    term_states = [14]
+    init_dist = 1/(num_states) * np.ones(num_states)
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+    return mdp_env
+
+def lava_ambiguous_corridor3():
+    num_rows = 5
+    num_cols = 5
+    num_states = num_rows * num_cols
+    white = (1,0)
+    red = (0,1)
+    state_features = np.array([white, white, white, white, white,
+                               white, red, red, red, red,
+                               white, red, red, red, red,
+                               white, red, red, red, red,
+                               white, white, white, white, white])
+    weights = np.array([-0.1, -0.9])#np.array([-0.26750391, -0.96355677])#np.array([-.18, -.82])
+    weights = weights / np.linalg.norm(weights)
+    print(weights)
+    gamma = 0.99
+    init_dist = np.zeros(num_states)
+    # init_states = [5,4]
+    # for si in init_states:
+    #     init_dist[si] = 1.0 / len(init_states)
+    term_states = [24]
+    init_dist = 1/(num_states) * np.ones(num_states)
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+    return mdp_env
+
+
+
+def lava_ambiguous_corridor2():
+    num_rows = 3
+    num_cols = 5
+    num_states = num_rows * num_cols
+    white = (1,0,0)
+    red = (0,1,0)
+    green = (0,0,1)
+    state_features = np.array([white, white, white, white, white,
+                               white, red, red, red, red,
+                               white, white, white, white, green])
+    weights = np.array([-1, -9, +1])#np.array([-0.26750391, -0.96355677])#np.array([-.18, -.82])
+    #weights = weights / np.linalg.norm(weights)
+    print(weights)
+    gamma = 0.99
+    init_dist = np.zeros(num_states)
+    # init_states = [5,4]
+    # for si in init_states:
+    #     init_dist[si] = 1.0 / len(init_states)
+    term_states = []
+    init_dist = 1/(num_states) * np.ones(num_states)
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+    return mdp_env
+
 
 
 def lava_ambiguous_ird_fig2a():

@@ -14,7 +14,7 @@ num_trials = 100
 debug = True
 init_seed = 1331
 experiment_directory = './results/random_grid_no_terminal/'
-experiment_name = 'grid7x7_cvar_birl.txt'
+experiment_name = 'grid7x7_cvar_regret_birl_l2.txt'
 import os
 if not os.path.exists(experiment_directory):
     os.makedirs(experiment_directory)
@@ -43,8 +43,9 @@ lamdas = [0.0, 0.5, 0.75, 0.9, 0.95]
 beta = 100.0
 step_stdev = 0.05
 num_samples = 3000
-burn = 100
+burn = 300
 skip = 5
+mcmc_norm = "l2"
 
 
 
@@ -71,10 +72,10 @@ for i in range(num_trials):
 
 
     ###Run Bayesian IRL to get posterior
-
-    birl = bayesian_irl.BayesianIRL(mdp_env, beta, step_stdev, debug=False)
+    print("running B-IRL")
+    birl = bayesian_irl.BayesianIRL(mdp_env, beta, step_stdev, debug=False, mcmc_norm = mcmc_norm)
     map_w, map_u_sa, w_chain, u_chain = birl.sample_posterior(demonstrations, num_samples, False)
-
+    print("Birl complete")
 
     if debug:
         print("-------")
@@ -120,9 +121,10 @@ for i in range(num_trials):
     print("mean = {}, map = {}".format(mean_ploss, map_ploss))
 
     ###run CVaR IRL to get policy
-
+    print("optimizing CVAR")
     #running just the robust version for now
-    u_expert = np.zeros(mdp_env.num_actions * mdp_env.num_states)
+    traj_demonstrations = [demonstrations]
+    u_expert = utils.u_sa_from_demos(traj_demonstrations, mdp_env)#np.zeros(mdp_env.num_actions * mdp_env.num_states)
     
     n = w_chain_burned.shape[0]
     posterior_probs = np.ones(n) / n  #uniform dist since samples from MCMC

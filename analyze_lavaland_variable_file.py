@@ -6,7 +6,7 @@ import os
 
 
 experiment_directory = './results/lavaland/'
-experiment_name = 'grid5x5_ploss_lavaocc_v4.txt'    #this experiment used L2-norm constraint
+experiment_name = 'grid5x5_ploss_lavaocc_v4_None.txt'    #this experiment used L2-norm constraint
 # experiment_name = 'grid5x5_ploss_lavaocc_v2_lessgrass_fewer_inits_alpha99.txt'  #this experiment used L1-norm constraint
 
 #result reader

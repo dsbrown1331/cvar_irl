@@ -4,13 +4,20 @@ import utils
 import numpy as np
 import bayesian_irl
 import random
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--mcmc_norm', type=str, default='None',
+                    help='None, "inf", "l2", or "l1"')
+
+args = parser.parse_args()
 
 
 #Okay, so it seems that using fewer demos is better for our method than for IRD so that's good.
 
-init_seed = 1331
+init_seed = 1212
 
-num_trials = 5
+num_trials = 30
 
 #CVaR optimization params
 alpha = 0.95
@@ -24,17 +31,22 @@ burn = 200
 skip = 5
 num_samples = 2000
 
-plot_chain = True
+plot_chain = False
 
 demo_states = [0]
 
-demo_horizon = 100
+demo_horizon = 30
 
-birl_norm = None
+if args.mcmc_norm == 'None':
+        birl_norm = None
+        experiment_name = 'grid5x5_ploss_lavaocc_v4_None.txt'
+else:
+    birl_norm = args.mcmc_norm
+    experiment_name = 'grid5x5_ploss_lavaocc_v4_' + args.mcmc_norm + '.txt'
 
 
 experiment_directory = './results/lavaland/'
-experiment_name = 'grid5x5_ploss_lavaocc_v4_None.txt'
+
 import os
 if not os.path.exists(experiment_directory):
     os.makedirs(experiment_directory)
@@ -45,7 +57,7 @@ f = open(os.path.join(experiment_directory, experiment_name), 'w')
 
 
 
-for t in [1]:#range(num_trials):
+for t in range(num_trials):
     print("##############")
     print("Trial ", t)
     print("##############")
@@ -92,7 +104,7 @@ for t in [1]:#range(num_trials):
     #Now let's run Bayesian IRL on this demo in this mdp with a placeholder feature to see what happens.
     birl = bayesian_irl.BayesianIRL(mdp_env_A, beta, step_stdev, debug=False, mcmc_norm=birl_norm)
 
-    map_w, map_u, r_chain, u_chain = birl.sample_posterior(demonstrations, num_samples, False)
+    map_w, map_u_A, r_chain, _ = birl.sample_posterior(demonstrations, num_samples, False)
 
 
     r_chain_burned = r_chain[burn::skip]
@@ -112,25 +124,25 @@ for t in [1]:#range(num_trials):
     print("map reward")
     utils.print_as_grid(map_r, mdp_env_A)
     print("Map policy")
-    utils.print_policy_from_occupancies(map_u, mdp_env_A)
+    utils.print_policy_from_occupancies(map_u_A, mdp_env_A)
 
     print("MEAN policy on Train MDP")
     mean_w = np.mean(r_chain[burn::skip], axis=0)
     print("mean_weights", mean_w)
     mean_r = np.dot(mdp_env_A.state_features, mean_w)
     mean_r_sa = mdp_env_A.transform_to_R_sa(mean_w)
-    mean_u_sa = mdp.solve_mdp_lp(mdp_env_A, reward_sa=mean_r_sa) #use optional argument to replace standard rewards with sample
+    mean_u_A = mdp.solve_mdp_lp(mdp_env_A, reward_sa=mean_r_sa) #use optional argument to replace standard rewards with sample
     print('mean reward')
     utils.print_as_grid(mean_r, mdp_env_A)
     print("mean policy")
-    utils.print_policy_from_occupancies(mean_u_sa, mdp_env_A)
+    utils.print_policy_from_occupancies(mean_u_A, mdp_env_A)
 
     print("Optimal Policy")
     utils.print_policy_from_occupancies(u_sa_A, mdp_env_A)
     
 
-    print("MAP policy loss", np.dot(mdp_env_A.r_sa, u_sa_A - map_u))
-    print("Mean policy loss", np.dot(mdp_env_A.r_sa, u_sa_A - mean_u_sa))
+    print("MAP policy loss", np.dot(mdp_env_A.r_sa, u_sa_A - map_u_A))
+    print("Mean policy loss", np.dot(mdp_env_A.r_sa, u_sa_A - mean_u_A))
 
 
 
@@ -208,7 +220,7 @@ for t in [1]:#range(num_trials):
     utils.print_policy_from_occupancies(ird_u_sa, mdp_env_B)
 
 
-    map_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - map_u)
+    map_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - map_u_sa)
     mean_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - mean_u_sa)
     robust_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - cvar_robust_usa)
     regret_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - cvar_regret_usa)
@@ -234,7 +246,7 @@ for t in [1]:#range(num_trials):
         stacked_weights.append(np.array(mdp_env_B.state_features))
     stacked_weights = np.concatenate(stacked_weights)
 
-    map_lava = np.dot(map_u, stacked_weights)[3]
+    map_lava = np.dot(map_u_sa, stacked_weights)[3]
     mean_lava = np.dot(mean_u_sa, stacked_weights)[3]
     robust_lava = np.dot(cvar_robust_usa, stacked_weights)[3]
     regret_lava = np.dot(cvar_regret_usa, stacked_weights)[3]

@@ -64,6 +64,11 @@ class ChainMDP(implements(MDP)):
        
         self.r_sa = r_sa
 
+        self.init_states = []
+        for s in range(self.num_states):
+            if self.init_dist[s] > 0:
+                self.init_states.append(s)
+
 
         self.P_left = self.get_transitions(policy="left")
         #print("P_left\n",self.P_left)
@@ -206,6 +211,12 @@ class BasicGridMDP(implements(MDP)):
         self.r_sa = self.transform_to_R_sa(self.r_s)
         #print("transformed R(s,a)", self.r_sa)
 
+        self.init_states = []
+        for s in range(self.num_states):
+            if self.init_dist[s] > 0:
+                self.init_states.append(s)
+
+
         self.P_left = self.get_transitions(policy="left")
         if self.debug: print("P_left\n",self.P_left)
         self.P_right = self.get_transitions(policy="right")
@@ -342,6 +353,12 @@ class FeaturizedGridMDP(BasicGridMDP):
         self.init_dist = init_dist
         self.terminals = terminals
         self.debug = debug
+
+        self.init_states = []
+        for s in range(self.num_states):
+            if self.init_dist[s] > 0:
+                self.init_states.append(s)
+
         
         self.P_left = self.get_transitions(policy="left")
         if self.debug: print("P_left\n",self.P_left)
@@ -393,7 +410,233 @@ class FeaturizedGridMDP(BasicGridMDP):
             print("Error, reward weights should be features or state rewards")
             sys.exit()
         return np.tile(R_s, self.num_actions)
-        
+
+
+
+def get_windy_down_grid_transitions(mdp_env, slip_prob):
+    num_rows, num_cols = mdp_env.num_rows, mdp_env.num_cols
+    num_states = mdp_env.num_states
+    terminals = mdp_env.terminals
+    #action 0 LEFT
+    P_left = np.zeros((num_states, num_states))
+    #always transition one to left unless already at left border
+    prob_slip = slip_prob
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                #check columns
+                if c == 0:
+                    P_left[cnt,cnt] += 1.0 - prob_slip #self loop if 
+                    if r < num_rows - 1: # check if above last row
+                        P_left[cnt, cnt + num_cols] += prob_slip
+                    else:
+                        P_left[cnt,cnt] += prob_slip
+                else: #c > 0
+                    P_left[cnt, cnt - 1] = 1.0 - prob_slip
+                    if r < num_rows - 1: # check if above last row
+                        P_left[cnt, cnt - 1 + num_cols] += prob_slip
+                    else:
+                        P_left[cnt,cnt - 1] += prob_slip
+                    
+            #increment state count
+            cnt += 1
+
+    #action 1 RIGHT
+    P_right = np.zeros((num_states, num_states))
+    #always transition one to right unless already at right border
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                if c < num_cols - 1:
+                    #transition to next state to right
+                    P_right[cnt, cnt + 1] += 1.0 - prob_slip
+                    if r < num_rows - 1: # check if above last row
+                        P_right[cnt, cnt + 1 + num_cols] += prob_slip
+                    else:
+                        P_right[cnt,cnt + 1] += prob_slip
+                else: # c == num_cols - 1 (at right edge of world)
+                    #self transition
+                    P_right[cnt,cnt] = 1.0 - prob_slip
+                    if r < num_rows - 1: # check if above last row
+                        P_right[cnt, cnt + num_cols] += prob_slip
+                    else: # bottom right corner
+                        P_right[cnt,cnt] += prob_slip
+            #increment state count
+            cnt += 1
+    #action 2 UP
+    #Let's say it pushes you left or right with prob_slip / 2
+    P_up = np.zeros((num_states, num_states))
+    #always transition one to left unless already at left border
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                if r > 0:
+                    P_up[cnt, cnt - num_cols] = 1.0 - prob_slip
+                    if c == 0:
+                        P_up[cnt, cnt - num_cols] += prob_slip / 2 #go up left and run into wall
+                        P_up[cnt, cnt - num_cols + 1] += prob_slip / 2
+                    elif c == num_cols - 1:
+                        P_up[cnt, cnt - num_cols - 1] += prob_slip / 2 #go up left and run into wall
+                        P_up[cnt, cnt - num_cols] += prob_slip / 2
+                    else:
+                        P_up[cnt, cnt - num_cols - 1] += prob_slip / 2 #go up left 
+                        P_up[cnt, cnt - num_cols + 1] += prob_slip / 2 #go up and right
+                else: #r == 0
+                    P_up[cnt, cnt] = 1.0 - prob_slip
+                    if c == 0:
+                        P_up[cnt, cnt] += prob_slip / 2 #go up left and run into wall
+                        P_up[cnt, cnt + 1] += prob_slip / 2
+                    elif c == num_cols - 1:
+                        P_up[cnt, cnt] += prob_slip / 2 #go up left and run into wall
+                        P_up[cnt, cnt - 1] += prob_slip / 2
+                    else:
+                        P_up[cnt, cnt - num_cols - 1] += prob_slip / 2 #go up left 
+                        P_up[cnt, cnt - num_cols + 1] += prob_slip / 2 #go up and right
+            #increment state count
+            cnt += 1
+    #action 3 DOWN
+    P_down = np.zeros((num_states, num_states))
+    #always transition one to left unless already at left border
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                if r < num_rows - 1:
+                    P_down[cnt, cnt + num_cols] = 1.0 - prob_slip
+                    if c == 0:
+                        P_down[cnt, cnt + num_cols] += prob_slip / 2 #go up left and run into wall
+                        P_down[cnt, cnt + num_cols + 1] += prob_slip / 2
+                    elif c == num_cols - 1:
+                        P_down[cnt, cnt + num_cols - 1] += prob_slip / 2 #go up left and run into wall
+                        P_down[cnt, cnt + num_cols] += prob_slip / 2
+                    else:
+                        P_down[cnt, cnt + num_cols - 1] += prob_slip / 2 #go up left 
+                        P_down[cnt, cnt + num_cols + 1] += prob_slip / 2 #go up and right
+                else: #r == num_rows - 1
+                    P_down[cnt, cnt] = 1.0 - prob_slip
+                    if c == 0:
+                        P_down[cnt, cnt] += prob_slip / 2 #go up left and run into wall
+                        P_down[cnt, cnt + 1] += prob_slip / 2
+                    elif c == num_cols - 1:
+                        P_down[cnt, cnt] += prob_slip / 2 #go up left and run into wall
+                        P_down[cnt, cnt - 1] += prob_slip / 2
+                    else:
+                        P_down[cnt, cnt - 1] += prob_slip / 2 #go up left 
+                        P_down[cnt, cnt + 1] += prob_slip / 2 #go up and right
+            #increment state count
+            cnt += 1
+    Ps = [P_left, P_right, P_up, P_down] #actions:0,1,2,3
+    return Ps
+
+
+#just assume that every action away from left and right edges has windy prob of pushing down when taking any action
+def get_windy_down_const_prob_transitions(mdp_env, slip_prob):
+    num_rows, num_cols = mdp_env.num_rows, mdp_env.num_cols
+    num_states = mdp_env.num_states
+    terminals = mdp_env.terminals
+    #action 0 LEFT
+    P_left = np.zeros((num_states, num_states))
+    #always transition one to left unless already at left border
+    prob_slip = slip_prob
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                #check columns
+                if c == 0:
+                    P_left[cnt,cnt] = 1.0
+                elif c == num_cols - 1:
+                    P_left[cnt,cnt - 1] = 1.0
+
+                else: #c > 0 and c < num_cols - 1 so possibly slip
+                    P_left[cnt, cnt - 1] = 1.0 - prob_slip
+                    if r < num_rows - 1: # check if above last row
+                        P_left[cnt, cnt + num_cols] += prob_slip #slip down
+                    else:
+                        P_left[cnt,cnt] += prob_slip
+                    
+            #increment state count
+            cnt += 1
+
+    #action 1 RIGHT
+    P_right = np.zeros((num_states, num_states))
+    #always transition one to right unless already at right border
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                if c == 0:
+                    P_right[cnt,cnt+1] = 1.0
+
+                elif c < num_cols - 1:
+                    #transition to next state to right or go down instead
+                    P_right[cnt, cnt + 1] += 1.0 - prob_slip
+                    if r < num_rows - 1: # check if above last row
+                        P_right[cnt, cnt + num_cols] += prob_slip
+                    else:
+                        P_right[cnt,cnt] += prob_slip
+                
+                else: # c == num_cols - 1 (at right edge of world)
+                    #self transition
+                    P_right[cnt,cnt] = 1.0 #just bump into wall on right
+            #increment state count
+            cnt += 1
+    #action 2 UP
+    #Let's say it pushes you left or right with prob_slip / 2
+    P_up = np.zeros((num_states, num_states))
+    #always transition one to left unless already at left border
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                # if cnt == 7:
+                   # print("hey")
+                if r > 0:
+                    P_up[cnt, cnt - num_cols] = 1.0 - prob_slip
+                    if c == 0:
+                        P_up[cnt, cnt - num_cols] += prob_slip #go up
+                    elif c == num_cols - 1:
+                        P_up[cnt, cnt - num_cols] += prob_slip #go up
+                    else: #maybe go down instead
+                        if r < num_rows - 1:
+                            P_up[cnt, cnt + num_cols] += prob_slip 
+                        else:
+                            P_up[cnt, cnt] += prob_slip 
+                else: #r == 0
+                    P_up[cnt, cnt] = 1.0 - prob_slip
+                    if c == 0: # no slip
+                        P_up[cnt, cnt] += prob_slip 
+                    elif c == num_cols - 1: #no slip
+                        P_up[cnt, cnt] += prob_slip 
+                    else: #slip down maybe
+                        P_up[cnt, cnt + num_cols] += prob_slip 
+            #increment state count
+            cnt += 1
+    #action 3 DOWN
+    P_down = np.zeros((num_states, num_states))
+    #go left or right or down when going down unless not in the wind
+    cnt = 0
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if cnt not in terminals: #no transitions out of terminal
+                if r < num_rows - 1:
+                    P_down[cnt, cnt + num_cols] = 1.0 - prob_slip
+                    if c == 0: #no wind
+                        P_down[cnt, cnt + num_cols] += prob_slip 
+                    elif c == num_cols - 1: # no wind
+                        P_down[cnt, cnt + num_cols] += prob_slip 
+                    else:
+                        P_down[cnt, cnt + num_cols - 1] += prob_slip / 2 #go down left 
+                        P_down[cnt, cnt + num_cols + 1] += prob_slip / 2 #go down and right
+                else: #r == num_rows - 1
+                    P_down[cnt, cnt] = 1.0 #just go down
+            cnt += 1
+    Ps = [P_left, P_right, P_up, P_down] #actions:0,1,2,3
+    return Ps
+
 
 
 
@@ -425,6 +668,21 @@ def get_q_values(occupancy_frequencies, mdp_env):
     q_values = r_sa + gamma * np.dot(P_column, state_values)
     return q_values
     
+
+# def get_q_values(occupancy_frequencies, mdp_env):
+#     num_states, num_actions, gamma = mdp_env.num_states, mdp_env.num_actions, mdp_env.gamma
+#     stochastic_policy = utils.get_optimal_policy_from_usa(occupancy_frequencies, mdp_env)
+#     reward_policy = get_policy_rewards(stochastic_policy, reward_sa)
+#     transitions_policy = get_policy_transitions(stochastic_policy, mdp_env)
+#     A = np.eye(num_states) - gamma * transitions_policy 
+#     b = reward_policy
+    
+#     state_values = np.linalg.solve(A, b)
+#     Ps = tuple(self.mdp_env.Ps[i] for i in range(num_actions))
+#     P_column = np.concatenate(Ps, axis=0)
+#     #print(P_column)
+#     q_values = reward_sa + gamma * np.dot(P_column, state_values)
+
 
 def solve_mdp_lp(mdp_env, reward_sa=None, debug=False):
     '''method that uses Linear programming to solve MDP
@@ -476,11 +734,19 @@ def solve_mdp_lp(mdp_env, reward_sa=None, debug=False):
 
 def solve_lpal_policy(mdp_env, u_expert, debug=False):
     '''input mdp_env: the mdp
-        u_expert: the state-action occupancies of the expert
-            
+        u_expert: the expected feature coutns of the expert
+            #using the LP formulation that Marek derived that works for both positive and negative weights
         returns: u_sa from the LPAL algorithm
     '''
 
+    w_dim = len(u_expert)
+
+    #decision variable are [u_sa, B]
+    n_states = mdp_env.num_states
+    n_actions = mdp_env.num_actions
+    Phi = mdp_env.state_features
+
+    k = mdp_env.num_states * mdp_env.num_actions
 
     I_s = np.eye(mdp_env.num_states)
     gamma = mdp_env.gamma
@@ -490,23 +756,32 @@ def solve_lpal_policy(mdp_env, u_expert, debug=False):
         I_minus_gamma_Ps.append(I_s - gamma * P_a.transpose())
 
     A_eq = np.concatenate(I_minus_gamma_Ps, axis=1)
+    A_eq = np.concatenate((A_eq, np.zeros((n_states,1))), axis=1) #add zeros for the B variable
 
-    # if mdp_env.num_actions == 4:
-    #     A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
-    #                     I_s - gamma * mdp_env.P_right.transpose(),
-    #                     I_s - gamma * mdp_env.P_up.transpose(),
-    #                     I_s - gamma * mdp_env.P_down.transpose()),axis =1)
-    # else:
-        
-    #     A_eq = np.concatenate((I_s - gamma * mdp_env.P_left.transpose(),
-    #                     I_s - gamma * mdp_env.P_right.transpose()),axis =1)
     b_eq = mdp_env.init_dist
-    if reward_sa is not None:
-        c = -1.0 * reward_sa  #we want to maximize r_sa^T c so make it negative since scipy minimizes by default
-    else:
-        c = -1.0 * mdp_env.r_sa  #we want to maximize r_sa^T c so make it negative since scipy minimizes by default
 
-    sol = linprog(c, A_eq=A_eq, b_eq = b_eq)
+    #LPAL maxmin constraints
+    #first create a feature matrix that works for all actions
+    Phi_LPAL = np.concatenate([Phi for _ in range(n_actions)] , axis=0)
+
+    A_leq_maxmin1 = np.concatenate((-Phi_LPAL.transpose(), np.ones((w_dim,1))), axis=1)
+    A_leq_maxmin2 = np.concatenate((Phi_LPAL.transpose(), -np.ones((w_dim,1))), axis=1)
+    A_leq_maxmin = np.concatenate((A_leq_maxmin1, A_leq_maxmin2), axis=0)
+    b_geq_maxmin = np.concatenate((-u_expert, u_expert), axis=0)
+
+    #constraints for u_sa >=0 
+    A_u_geq0 = -np.eye(k, M=k+1)  #negative since constraint needs to be Ax<=b
+    b_u_geq0 = np.zeros(k)
+
+    #stack all the constraints on top of each other
+    A_leq = np.concatenate((A_leq_maxmin, A_u_geq0), axis=0)
+    b_geq = np.concatenate((b_geq_maxmin, b_u_geq0), axis=0)
+
+ 
+    #decision variables are [u_sa, B]
+    c = np.concatenate((np.zeros(k), np.ones(1)))  #we want to minimize B 
+
+    sol = linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_leq, b_ub=b_geq, bounds=(None, None))
     #minimize:
     #c @ x
     #such that:
@@ -517,7 +792,70 @@ def solve_lpal_policy(mdp_env, u_expert, debug=False):
 
     if debug: print("expeced value MDP LP", -sol['fun'])  #need to negate the value to get the maximum
     #print("state_action occupancies", sol['x'])
-    u_sa = sol['x'] 
+    u_sa = sol['x'][:k]
+    B = sol['x'][k] 
+
+    #print("expected value dot product", np.dot(u_sa, mdp_env.r_sa))
+    #calculate the optimal policy
+    return u_sa
+
+
+def solve_lpal_policy_old(mdp_env, u_expert, debug=False):
+    '''input mdp_env: the mdp
+        u_expert: the state-action occupancies of the expert
+            
+        returns: u_sa from the LPAL algorithm
+    '''
+    n_states = mdp_env.num_states
+    n_actions = mdp_env.num_actions
+    Phi = mdp_env.state_feature_matrix
+
+    k = mdp_env.num_states * mdp_env.num_actions
+
+    I_s = np.eye(mdp_env.num_states)
+    gamma = mdp_env.gamma
+
+    I_minus_gamma_Ps = []
+    for P_a in mdp_env.get_transition_prob_matrices():
+        I_minus_gamma_Ps.append(I_s - gamma * P_a.transpose())
+
+    A_eq = np.concatenate(I_minus_gamma_Ps, axis=1)
+    A_eq = np.concatenate((A_eq, np.zeros(n_states,1))) #add zeros for the B variable
+
+    b_eq = mdp_env.init_dist
+
+    #LPAL maxmin constraints
+    pos_neg_features = np.concatenate((Phi, -Phi), axis=1)
+    Phi_LPAL = np.concatenate([pos_neg_features for _ in range(n_actions)] , axis=0)
+
+    A_leq_maxmin = np.concatenate((np.ones(2*k,1), -Phi_LPAL.transpose()), axis=1)
+    b_geq_maxmin = -np.concatenate((u_expert, -u_expert), axis=0)
+
+    #constraints for u_sa >=0 
+    A_u_geq0 = -np.eye(k, M=k+1)  #negative since constraint needs to be Ax<=b
+    b_u_geq0 = np.zeros(k)
+
+    #stack all the constraints on top of each other
+    A_leq = np.concatenate((A_leq_maxmin, A_u_geq0), axis=0)
+    b_geq = np.concatenate((b_geq_maxmin, b_u_geq0), axis=0)
+
+ 
+    #decision variables are [u_sa, B]
+    c = -np.concatenate((np.zeros(k), np.ones(1)))  #we want to maximize B c so make it negative since scipy minimizes by default
+
+    sol = linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_leq, b_up=b_geq, bounds=(None, None))
+    #minimize:
+    #c @ x
+    #such that:
+    #A_ub @ x <= b_ub
+    #A_eq @ x == b_eq
+    #all variables are non-negative by default
+    #print(sol)
+
+    if debug: print("expeced value MDP LP", -sol['fun'])  #need to negate the value to get the maximum
+    #print("state_action occupancies", sol['x'])
+    u_sa = sol['x'][:k]
+    B = sol['x'][k] 
 
     #print("expected value dot product", np.dot(u_sa, mdp_env.r_sa))
     #calculate the optimal policy
@@ -811,6 +1149,16 @@ def get_policy_expected_return(stoch_policy, mdp_env):
     R_pi = get_policy_rewards(stoch_policy, mdp_env.r_sa)
     return np.dot(u_pi, R_pi)
 
+def stoch_policy_to_usa(stoch_policy, mdp_env):
+    '''Transform a stochastic policy into state-action expected occupancies
+    '''
+    n_states = mdp_env.num_states
+    u_s = get_policy_state_occupancy_frequencies(stoch_policy, mdp_env)
+    u_sa = np.zeros(mdp_env.num_states * mdp_env.num_actions)
+    for s in range(mdp_env.num_states):
+        for a in range(mdp_env.num_actions):
+            u_sa[s + a * n_states] = u_s[s] * stoch_policy[s,a]
+    return u_sa
 
 
 def two_by_two_mdp():
@@ -924,6 +1272,192 @@ def two_state_chain():
     #does this reward match the reward found by taking 
 
 
+def value_iteration(mdp_env, epsilon=0.0001):
+    '''standard value iteration'''
+    gamma = mdp_env.gamma
+    num_states = mdp_env.num_states
+    num_actions = mdp_env.num_actions
+    Ps = mdp_env.Ps
+    #repeat until convergence within error eps
+    V = np.zeros(mdp_env.num_states)
+    while True:
+        delta = 0
+        for s1 in range(num_states):
+        
+            tempV = 0
+            #add reward
+            tempV += mdp_env.r_s[s1]
+        
+            #add discounted max over actions of value of next state
+            maxActionValue = -np.inf
+            for a in range(num_actions):
+                T = Ps[a]
+                #calculate expected utility of taking action a in state s1
+                expUtil = 0
+                for s2 in range(num_states):
+                    expUtil += T[s1][s2] * V[s2]
+                
+                if expUtil > maxActionValue:
+                    maxActionValue = expUtil
+            
+            tempV += gamma * maxActionValue
+
+            #update delta to track convergence
+            absDiff = abs(tempV - V[s1])
+            
+            if absDiff > delta:
+                delta = absDiff
+            V[s1] = tempV
+        if delta < epsilon * (1 - gamma) / gamma:
+            return V
+
+def calculate_Q_values(mdp_env, V = None):
+    if V is None:
+        V = value_iteration(mdp_env)
+    Q = np.zeros((mdp_env.num_states, mdp_env.num_actions))
+    for s in range(mdp_env.num_states):
+        for a in range(mdp_env.num_actions):
+            Q[s][a] = mdp_env.r_s[s]
+            for s2 in range(mdp_env.num_states):
+                Q[s][a] += mdp_env.gamma * mdp_env.Ps[a][s][s2] * V[s2]
+    return Q    
+
+          
+def get_optimal_stochastic_policy(mdp_env, Q = None, V = None, epsilon = 0.0001):
+    num_states, num_actions = mdp_env.num_states, mdp_env.num_actions
+    opt_stochastic = np.zeros((num_states, num_actions))
+    if Q is None:
+       Q = calculate_Q_values(mdp_env, V)
+
+    for s in range(num_states):
+        cum_sum = 0.0
+        max_qval = np.max(Q[s])
+        for a in range(num_actions):
+
+            if(abs(Q[s,a] - max_qval) < epsilon):            
+                opt_stochastic[s][a] = 1.0
+                cum_sum += 1.0     
+        
+        #normalize
+        opt_stochastic[s] /= cum_sum
+   
+    return opt_stochastic
+
+def soft_value_iteration_old(mdp_env, epsilon=0.0001):
+    '''standard value iteration
+    Note: should work with state and state-action rewards
+    This method works without a terminal state, but not with one...
+    '''
+    gamma = mdp_env.gamma
+    num_states = mdp_env.num_states
+    num_actions = mdp_env.num_actions
+    Ps = mdp_env.Ps
+    #repeat until convergence within error eps
+    V1 = np.zeros(mdp_env.num_states)
+    
+    while True:
+        Q = np.zeros((mdp_env.num_states, mdp_env.num_actions))
+        V = V1.copy()
+        delta = 0
+        for s1 in range(num_states):
+            for a in range(num_actions):
+                #calculate expected utility of taking action a in state s1
+                exp_util = mdp_env.r_s[s1]# + a*num_states] 
+                T = Ps[a]
+                for s2 in range(num_states):
+                    print(gamma * T[s1][s2] * V[s2])
+                    exp_util += gamma * T[s1][s2] * V[s2]
+                Q[s1][a] = exp_util
+            #rather than using max use softmax
+            V1[s1] = utils.logsumexp(Q[s1])
+
+            #update delta to track convergence
+            delta = max(delta, (V1[s1] - V[s1]))
+            
+        if delta < epsilon * (1 - gamma) / gamma:
+            return V, Q
+
+
+def ziebart_softmax(x1, x2):
+    max_x = max(x1, x2)
+    min_x = min(x1, x2)
+    return max_x + np.log(1 + np.exp(min_x - max_x))
+
+
+#TODO: debug this. It isn't working....
+def soft_value_iteration(mdp_env, epsilon=0.0001):
+    '''Using notes from Brian Ziebart's thesis on page 112
+    Note: should work with state and state-action rewards
+    Not working well, maybe I need to try without a terminal? that works.
+    Now what?
+    '''
+    gamma = mdp_env.gamma
+    num_states = mdp_env.num_states
+    num_actions = mdp_env.num_actions
+    Ps = mdp_env.Ps
+    #repeat until convergence within error eps
+    Vsoft = np.zeros(mdp_env.num_states)
+    for s in range(num_states):
+        Vsoft[s] = -1000000
+    
+    
+    while True: #while not converged
+
+        #set with potential function see brief discussion on page 111
+        Vsoft_prime = np.zeros(mdp_env.num_states)
+        for s in range(mdp_env.num_states):
+            if s not in mdp_env.terminals:
+                Vsoft_prime[s] = -1000000
+
+        Qsoft = np.zeros((mdp_env.num_states, mdp_env.num_actions))
+        
+        delta = 0
+        for s1 in range(num_states):
+            for a in range(num_actions):
+                #calculate expected utility of taking action a in state s1
+                T = Ps[a]
+                exp_util = mdp_env.r_s[s1]
+                for s2 in range(num_states):
+                    exp_util += gamma * T[s1][s2] * Vsoft[s2]
+
+                Qsoft[s1][a] = exp_util
+                Vsoft_prime[s1] = ziebart_softmax(Vsoft_prime[s1], Qsoft[s1][a])
+            
+            #update delta to track convergence
+            print("state ", s1)
+            print(abs(Vsoft[s1] - Vsoft_prime[s1]))
+            delta = max(delta, abs(Vsoft[s1] - Vsoft_prime[s1]))
+        Vsoft = Vsoft_prime.copy()   
+        print(Vsoft) 
+        if delta < epsilon * (1 - gamma) / gamma:
+            return Vsoft, Qsoft
+
+
+
+def compute_maxent_policy(mdp_env, beta, epsilon=0.0001):
+    _, Q = soft_value_iteration(mdp_env, epsilon)
+    stoch_policy = np.zeros((mdp_env.num_states, mdp_env.num_actions))
+    for s in range(mdp_env.num_states):
+        stoch_policy[s,:] = utils.stable_softmax(Q[s]) 
+    return stoch_policy
 
 if __name__ == "__main__":
-    two_state_chain()
+    # two_state_chain()
+    import mdp_worlds
+    mdp_env = mdp_worlds.lava_ambiguous_corridor()
+    #mdp_env = mdp_worlds.machine_teaching_toy_featurized()
+    beta = 1
+    #V = value_iteration(mdp_env)
+    stoch_policy = get_optimal_stochastic_policy(mdp_env)
+    utils.print_stoch_policy(stoch_policy, mdp_env)
+    soft_V, soft_Q = soft_value_iteration(mdp_env)
+
+    print("soft V")
+    print(soft_V)
+    print("soft Q")
+    print(soft_Q)
+    stoch_pi = compute_maxent_policy(mdp_env, beta) 
+    utils.print_stoch_policy(stoch_pi, mdp_env)
+    print(np.sum(stoch_pi, axis=1))
+
+

@@ -33,7 +33,7 @@ if __name__=="__main__":
     step_stdev = 0.2
     birl = bayesian_irl.BayesianIRL(mdp_env, beta, step_stdev, debug=False)
 
-    num_samples = 1000
+    num_samples = 100
     burn = 50
     skip = 2
     map_w, map_u, r_chain, u_chain = birl.sample_posterior(demonstrations, num_samples)
@@ -90,6 +90,12 @@ if __name__=="__main__":
     cvar_opt_usa_robust, cvar, exp_ret = mdp.solve_max_cvar_policy(mdp_env, u_expert, r_chain_burned.transpose(), posterior_probs, alpha, False)
     print("{}-CVaR policy robust".format(alpha))
     utils.print_policy_from_occupancies(cvar_opt_usa_robust, mdp_env)
+
+
+    print("LPAL")
+    u_expert = utils.u_sa_from_demos(traj_demonstrations, mdp_env)
+    lpal_u_sa = mdp.solve_lpal_policy(mdp_env, u_expert)
+    utils.print_policy_from_occupancies(lpal_u_sa, mdp_env)
 
 
 

@@ -10,7 +10,7 @@ import random
 
 init_seed = 1331
 
-num_trials = 5
+num_trials = 1
 
 #CVaR optimization params
 alpha = 0.95
@@ -92,8 +92,9 @@ for t in range(num_trials):
     #Now let's run Bayesian IRL on this demo in this mdp with a placeholder feature to see what happens.
     birl = bayesian_irl.BayesianIRL(mdp_env_A, beta, step_stdev, debug=False, mcmc_norm=birl_norm)
 
-    map_w, map_u, r_chain, u_chain = birl.sample_posterior(demonstrations, num_samples, False)
+    map_w, _, r_chain, _ = birl.sample_posterior(demonstrations, num_samples, False)
 
+    
 
     r_chain_burned = r_chain[burn::skip]
     n = r_chain_burned.shape[0]
@@ -126,10 +127,12 @@ for t in range(num_trials):
     utils.print_as_grid(map_r, mdp_env_B)
     #compute new policy for mdp_B for map rewards
     map_r_sa = mdp_env_B.transform_to_R_sa(map_w)
+    print("map r_sa")
+    print(map_r_sa)
     map_u_sa = mdp.solve_mdp_lp(mdp_env_B, reward_sa=map_r_sa) #use optional argument to replace standard rewards with sample
-    print("Map policy")
+    print("Map policy map_u_sa")
     utils.print_policy_from_occupancies(map_u_sa, mdp_env_B)
-
+    
     print("MEAN policy on test env")
     mean_w = np.mean(r_chain_burned, axis=0)
     print("mean_weights", mean_w)
@@ -144,10 +147,19 @@ for t in range(num_trials):
     print("features")
     utils.display_onehot_state_features(mdp_env_B)
 
-
+    print("opt)")
+    print(u_sa_B)
+    print("map")
+    print(map_u_sa)
+    print(u_sa_B - map_u_sa)
+    print("mean)")
+    print(mean_u_sa)
+    print(u_sa_B - mean_u_sa)
+    print("r_sa")
+    print(mdp_env_B.r_sa)
     
 
-    map_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - map_u)
+    map_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - map_u_sa)
     mean_ploss = np.dot(mdp_env_B.r_sa, u_sa_B - mean_u_sa)
     
 
@@ -165,9 +177,9 @@ for t in range(num_trials):
     print(mdp_env_B.init_dist)
 
     print("map_u")
-    print(np.sum(map_u))
-    utils.print_policy_occupancies_pretty(map_u, mdp_env_B)
-    utils.print_stochastic_policy_action_probs(map_u, mdp_env_B)
+    print(np.sum(map_u_sa))
+    utils.print_policy_occupancies_pretty(map_u_sa, mdp_env_B)
+    utils.print_stochastic_policy_action_probs(map_u_sa, mdp_env_B)
 
     print("mean_u")
     print(np.sum(mean_u_sa))
@@ -177,7 +189,7 @@ for t in range(num_trials):
     num_states = mdp_env_B.get_num_states()
     map_lava = 0
     for s in lava_states:
-        map_lava += np.sum(map_u[s::num_states])
+        map_lava += np.sum(map_u_sa[s::num_states])
 
     print("map lava", map_lava)
 
@@ -195,7 +207,7 @@ for t in range(num_trials):
         stacked_weights.append(np.array(mdp_env_B.state_features))
     stacked_weights = np.concatenate(stacked_weights)
 
-    map_lava = np.dot(map_u, stacked_weights)
+    map_lava = np.dot(map_u_sa, stacked_weights)
     mean_lava = np.dot(mean_u_sa, stacked_weights)
     
     print("MAP lava occupancy", map_lava)

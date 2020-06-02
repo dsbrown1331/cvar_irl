@@ -7,7 +7,7 @@ import utils
 import mdp_worlds
 
 class BayesianIRL:
-    def __init__(self, mdp_env, beta, step_stdev, debug=False, mcmc_norm = None):
+    def __init__(self, mdp_env, beta, step_stdev, debug=False, mcmc_norm = None, likelihood="birl"):
         self.mdp_env = copy.deepcopy(mdp_env) #deep copy just in case so we don't mess up original 
         self.beta = beta
         self.step_stdev = step_stdev
@@ -16,6 +16,7 @@ class BayesianIRL:
         self.num_states = mdp_env.get_num_states()
         self.debug = debug
         self.mcmc_norm = mcmc_norm  #l2, inf, or l1
+        self.likelihood = likelihood  #"birl" or "uniform"
 
 
     def log_likelihood(self, reward_hypothesis, q_values, demonstrations):
@@ -24,13 +25,28 @@ class BayesianIRL:
         log_sum = 0.0
         for s,a in demonstrations:
             if s not in self.mdp_env.terminals and a is not None: #there are no counterfactuals in a terminal state
-                Z_exponents = []
-                for b in range(self.num_actions):
-                    Z_exponents.append(self.beta * q_values[s + self.num_states * b])
-                #print Z_exponents
-                log_sum += self.beta * q_values[s + self.num_states * a] - utils.logsumexp(Z_exponents)
-                #print "likelihood:", np.exp(self.beta * placement_reward - scipy.misc.logsumexp(Z_exponents))
-                #plt.show()
+                if self.likelihood == "birl":
+                    Z_exponents = []
+                    for b in range(self.num_actions):
+                        Z_exponents.append(self.beta * q_values[s + self.num_states * b])
+                    #print Z_exponents
+                    log_sum += self.beta * q_values[s + self.num_states * a] - utils.logsumexp(Z_exponents)
+                    #print "likelihood:", np.exp(self.beta * placement_reward - scipy.misc.logsumexp(Z_exponents))
+                    #plt.show()
+                elif self.likelihood == "uniform":
+                    #print(s,self.mdp_env.get_readable_actions(a))
+                    hinge_losses = 0.0
+
+                    for b in range(self.num_actions):
+                        # print(b)
+                        # print(q_values[s + self.num_states * b])
+                        # print(a)
+                        # print(q_values[s + self.num_states * a])
+                        hinge_losses += max(q_values[s + self.num_states * b] - q_values[s + self.num_states * a], 0.0)
+                        # print(hinge_losses)
+                    log_sum += -self.beta * hinge_losses
+                else:
+                    raise NotImplementedError
         return log_sum
 
     #going to sample from L2-sphere but with negative weights 
@@ -92,6 +108,7 @@ class BayesianIRL:
         P_column = np.concatenate(Ps, axis=0)
         #print(P_column)
         q_values = reward_sa + gamma * np.dot(P_column, state_values)
+        #q_values = mdp.get_q_values(occupancy_frequencies, self.mdp_env)
         return occupancy_frequencies, q_values
 
 
