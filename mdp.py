@@ -861,6 +861,110 @@ def solve_lpal_policy_old(mdp_env, u_expert, debug=False):
     #calculate the optimal policy
     return u_sa
 
+def solve_cvar_expret_fixed_policy(mdp_env, u_policy, u_expert, posterior_rewards, p_R, alpha, debug=False):
+    '''
+    Solves for CVaR and expectation with respect to BROIL baseline regret formulation using u_expert as the baseline
+    input 
+        mdp_env: the mdp
+        u_policy: the pre-optimized policy
+        u_expert: the state-action occupancies of the expert
+        posterior_rewards: a matrix with each column a reward hypothesis or each column a weight vector
+        p_R: a posterior probability mass function over the reward hypotheses
+        alpha: the risk sensitivity, higher is more conservative. We look at the (1-alpha)*100% average worst-case
+        lamda: the amount to weight expected return versus CVaR if 0 then fully robust, if 1, then fully return maximizing
+
+        returns: tuple (u_cvar, cvar) the occupancy frequencies of the policy optimal wrt cvar and the actual cvar value
+    '''
+
+
+    num_states, num_actions, gamma = mdp_env.num_states, mdp_env.num_actions, mdp_env.gamma
+    weight_dim, n = posterior_rewards.shape  #weight_dim is dimension of reward function weights and n is the number of samples in the posterior
+    #get number of state-action occupancies
+
+    #NOTE: k may be much larger than weight_dim! This isn't the k dim of the weights!
+    k = mdp_env.num_states * mdp_env.num_actions
+
+    #need to redefine R if using linear reward approximation with features and feature weights since R will be weight vectors
+    R = np.zeros((k,n))
+    for i in range(n):
+        #print(posterior_rewards[:,i])
+        R[:,i] = mdp_env.transform_to_R_sa(posterior_rewards[:,i]) #this method is overwritten by each MDP class to do the right thing
+        #print(np.reshape(R[:25,i],(5,5)))
+    #print(R)
+    #input()
+
+    posterior_probs = p_R
+    #new objective is 
+    #max \sigma - 1/(1-\alpha) * p^T z for vector of auxiliary variables z.
+
+    #so the decision variables are (in the following order) sigma, and all the z's from the ReLUs
+
+    #we want to maximize so take the negative of this vector and minimize via scipy 
+    c_cvar = -1. * np.concatenate((np.ones(1),                 #for sigma
+                        -1.0/(1.0 - alpha) * posterior_probs))  #for the auxiliary variables z
+
+    #constraints: for each of the auxiliary variables we have a constraint >=0 and >= the stuff inside the ReLU
+
+    #create constraint for each auxiliary variable should have |R| + 1 (for sigma) + n (for samples) columns 
+    # and n rows (one for each z variable)
+    auxiliary_constraints = np.concatenate((np.ones((n,1)), -np.eye(n)),axis=1)
+    
+    #add the upper bounds for these constraints:
+    #check to see if we have mu or u
+    if k != len(u_expert):
+        #we have feature approximation and have mu rather than u, at least we should
+        #print(weight_dim)
+        #print(u_expert)
+        assert len(u_expert) == weight_dim
+        print(R.shape)
+        print(u_policy.shape)
+        print(posterior_rewards.transpose().shape)
+        print(u_expert.shape)
+
+        auxiliary_b = np.dot(R.transpose(), u_policy) - np.dot(posterior_rewards.transpose(), u_expert)
+    else:
+        #no feature approximation for reward, just tabular
+        auxiliary_b = np.dot(R.transpose(), u_policy - u_expert)
+
+    #add the non-negativitity constraints for z(R). 
+    auxiliary_z_geq0 = np.concatenate((np.zeros((n,1)), -np.eye(n)), axis=1)
+    auxiliary_bz_geq0 = np.zeros(n)
+
+    
+    A_cvar = np.concatenate((auxiliary_constraints,
+                            auxiliary_z_geq0), axis=0)
+    b_cvar = np.concatenate((auxiliary_b, auxiliary_bz_geq0))
+
+    #solve the LP
+    sol = linprog(c_cvar, A_ub=A_cvar, b_ub = b_cvar, bounds=(None, None)) #TODO:might be good to explicitly make the bounds here rather than via constraints...
+    if debug: print("solution to optimizing CVaR")
+    if debug: print(sol)
+    
+    if sol['success'] is False:
+        #print(sol)
+        print("didn't solve correctly!")
+        input("Continue?")
+    #the solution of the LP corresponds to the CVaR
+    var_sigma = sol['x'][0] #get sigma (this is VaR (at least close))
+    cvar = -sol['fun'] #get the cvar of the input policy (negative since we minimized negative objective)
+    
+    #calculate expected return of optimized policy
+    if k != len(u_expert):
+        #we have feature approximation and have mu rather than u, at least we should
+        #print(weight_dim)
+        #print(u_expert)
+        assert len(u_expert) == weight_dim
+        expected_perf_expert = np.dot(posterior_probs, np.dot(posterior_rewards.transpose(), u_expert))
+    else:
+        expected_perf_expert = np.dot( np.dot(R, posterior_probs), u_expert)
+    cvar_exp_ret = np.dot( np.dot(R, posterior_probs), u_policy) - expected_perf_expert
+
+    if debug: 
+        print("CVaR = ", cvar)
+        print("Expected return = ", cvar_exp_ret)
+    
+    
+    return cvar, cvar_exp_ret
 
 
 
@@ -983,7 +1087,18 @@ def solve_max_cvar_policy(mdp_env, u_expert, posterior_rewards, p_R, alpha, debu
     cvar = var_sigma - 1.0/(1 - alpha) * np.dot(posterior_probs, relu_part)
 
     #calculate expected return of optimized policy
-    cvar_exp_ret = np.dot( np.dot(R, posterior_probs), cvar_opt_usa)
+    if k != len(u_expert):
+        #we have feature approximation and have mu rather than u, at least we should
+        #print(weight_dim)
+        #print(u_expert)
+        assert len(u_expert) == weight_dim
+        exp_baseline_perf = np.dot(posterior_probs, np.dot(posterior_rewards.transpose(), u_expert))
+    
+    else:
+        exp_baseline_perf = np.dot(np.dot(R, posterior_probs), u_expert)
+
+
+    cvar_exp_ret = np.dot( np.dot(R, posterior_probs), cvar_opt_usa) - exp_baseline_perf
 
     if debug: print("CVaR = ", cvar)
     if debug: print("policy u(s,a) = ", cvar_opt_usa)

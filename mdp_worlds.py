@@ -532,6 +532,105 @@ def lavaland_small(contains_lava=False):
     return mdp_env
 
 
+def negative_sideeffects_small(contains_lava=False):
+    #inspired by ambiguous lava domain from Dylan's IRD paper figure 2 (a) and also by Jessie Huang and Doinna's paper 
+    #has two features that are terrain types, a goal, and a "lava" feature that is unobserved in training but observed at testing
+
+    num_rows = 6
+    num_cols = 6
+    num_states = num_rows * num_cols
+    #four types of terrain
+    num_features = 4
+    d = (1,0,0,0)
+    g = (0,1,0,0)
+    t = (0,0,1,0)
+    l = (0,0,0,1)
+    #create one-hot features
+    f_vecs = np.eye(num_features)
+    features = [tuple(f) for f in f_vecs]
+
+    state_features = []
+    for i in range(num_states):
+        #select all but last state randomly from all but last feature, last feature is target feature
+        if not contains_lava:
+            #add lava randomly but at lower percentage
+            p = [0.5,0.5,0.0,0.0]  #add dirt and grass in equal proportions
+        else:
+            p = [0.4,0.4,0,0.2]  #add dirt and grass equally but add in some lava now
+        r_idx = np.random.choice(4,p=p) #sample from four features with probabilities p
+        # r_idx = np.random.randint(num_features - 1)
+        state_features.append(features[r_idx])
+    #make a random state the target
+    goal_state = np.random.randint(num_states)
+    state_features[goal_state] = t
+
+    state_features = np.array(state_features)
+    weights = np.array([-np.random.rand(),-np.random.rand(),+5,-5])
+    weights = weights / np.linalg.norm(weights)
+    print(weights)
+    gamma = 0.95
+    # init_dist = np.zeros(num_states)
+    # init_states = [0]
+    # for si in init_states:
+    #     init_dist[si] = 1.0 / len(init_states)
+    term_states = [goal_state] #no terminal
+    init_dist = 1/(num_states) * np.ones(num_states)
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+    return mdp_env
+
+
+def negative_sideeffects_goal(num_rows, num_cols, num_features, unseen_feature=False):
+    #no terminal random rewards and features
+
+    num_states = num_rows * num_cols
+
+    if unseen_feature:
+        assert(num_features >=3)
+
+    #create one-hot features
+    f_vecs = np.eye(num_features)
+    features = [tuple(f) for f in f_vecs]
+
+    state_features = []
+    for i in range(num_states):
+        #select all but last two states randomly (last state is goal, second to last state is possibly unseen)
+        if unseen_feature:
+            r_idx = np.random.randint(num_features-1)
+        else:
+            r_idx = np.random.randint(num_features-2)
+        state_features.append(features[r_idx])
+    
+    #select goal
+    goal_state = np.random.randint(num_states)
+    state_features[goal_state] = features[-1]
+
+    
+    state_features = np.array(state_features)
+
+
+    #sample from L2 ball
+    weights = -np.random.rand(num_features)
+    #set goal as positive
+    weights[-1] = +2
+    #set unseen as negative
+    weights[-2] = -2
+    weights = weights / np.linalg.norm(weights)
+    
+    print("weights", weights)
+    gamma = 0.99
+    #let's look at all starting states for now
+    init_dist = np.ones(num_states) / num_states
+    # init_states = [10]
+    # for si in init_states:
+    #     init_dist[si] = 1.0 / len(init_states)
+
+    #no terminal
+    term_states = [goal_state]
+    
+    mdp_env = mdp.FeaturizedGridMDP(num_rows, num_cols, state_features, weights, gamma, init_dist, term_states)
+    return mdp_env
+
+
 def lavaland_smaller(contains_lava=False):
     #trying to replicate the ambiguous lava domain from Dylan's IRD paper figure 2 (a)
     #four features, 10x10 grid

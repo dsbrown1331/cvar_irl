@@ -27,6 +27,8 @@ def calc_frontier(mdp_env, u_expert, reward_posterior, posterior_probs, lambda_r
         
         print("Policy for lambda={} and alpha={}".format(lamda, alpha))
         utils.print_policy_from_occupancies(cvar_opt_usa, mdp_env)
+        print("stochastic policy")
+        utils.print_stochastic_policy_action_probs(cvar_opt_usa, mdp_env)
         print("CVaR of policy = {}".format(cvar_value))
         print("Expected return of policy = {}".format(exp_ret))
         cvar_exprews.append((cvar_value, exp_ret))

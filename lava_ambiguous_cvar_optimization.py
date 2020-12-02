@@ -29,11 +29,11 @@ if __name__=="__main__":
     traj_demonstrations = [demonstrations]
 
 
-    beta = 100.0
-    step_stdev = 0.2
+    beta = 10.0
+    step_stdev = 0.1
     birl = bayesian_irl.BayesianIRL(mdp_env, beta, step_stdev, debug=False)
 
-    num_samples = 100
+    num_samples = 200
     burn = 50
     skip = 2
     map_w, map_u, r_chain, u_chain = birl.sample_posterior(demonstrations, num_samples)
@@ -73,15 +73,23 @@ if __name__=="__main__":
     cvar_opt_usa_regret, cvar, exp_ret = mdp.solve_max_cvar_policy(mdp_env, u_expert, r_chain_burned.transpose(), posterior_probs, alpha, False)
     print("{}-CVaR policy regret optimal u_E".format(alpha))
     utils.print_policy_from_occupancies(cvar_opt_usa_regret, mdp_env)
+    cvar_2, exp_ret2 = mdp.solve_cvar_expret_fixed_policy(mdp_env, cvar_opt_usa_regret, u_expert, r_chain_burned.transpose(), posterior_probs, alpha, debug=False)
+    print(cvar, cvar_2)
+    print(exp_ret, exp_ret2)
+    input("same?")
 
     #let's actually try the robust formulation but with respect to the empirical feature counts in the demo
     u_expert = utils.u_sa_from_demos(traj_demonstrations, mdp_env)
     alpha = 0.95
     n = r_chain_burned.shape[0]
     posterior_probs = np.ones(n) / n  #uniform dist since samples from MCMC
-    cvar_opt_usa_regret, cvar, exp_ret = mdp.solve_max_cvar_policy(mdp_env, u_expert, r_chain_burned.transpose(), posterior_probs, alpha, False)
+    cvar_opt_usa_robust, cvar, exp_ret = mdp.solve_max_cvar_policy(mdp_env, u_expert, r_chain_burned.transpose(), posterior_probs, alpha, False)
     print("{}-CVaR policy regret approx u_E".format(alpha))
     utils.print_policy_from_occupancies(cvar_opt_usa_regret, mdp_env)
+    cvar_2, exp_ret2 = mdp.solve_cvar_expret_fixed_policy(mdp_env, cvar_opt_usa_robust, u_expert, r_chain_burned.transpose(), posterior_probs, alpha, debug=False)
+    print(cvar, cvar_2)
+    print(exp_ret, exp_ret2)
+    input("same?")
 
 
 

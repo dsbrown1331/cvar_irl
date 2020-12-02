@@ -132,11 +132,31 @@ def get_policy_string_from_occupancies(u_sa, mdp_env):
         else:
             action_str = ""
             for a in range(mdp_env.num_actions):
-                if opt_stoch[s,a] > 0.01:
+                if opt_stoch[s,a] > 0.001:
                     action_str += mdp_env.get_readable_actions(a)
             policy_string_list.append(action_str)
     return policy_string_list
 
+
+def get_stoch_policy_string_dictionary_from_occupancies(u_sa, mdp_env):
+    #get stochastic policy
+    opt_stoch = get_optimal_policy_from_usa(u_sa, mdp_env)
+    cnt = 0
+    policy_string_dictionary_list = []
+    for s in range(mdp_env.num_states):
+        if s in mdp_env.terminals:
+            policy_string_dictionary_list.append({".":1.0})
+        else:
+            action_prob_dict = {}
+            for a in range(mdp_env.num_actions):
+                action_prob_dict[mdp_env.get_readable_actions(a)] = opt_stoch[s,a]
+            policy_string_dictionary_list.append(action_prob_dict)
+    return policy_string_dictionary_list
+
+
+def print_policy_from_occupancies(u_sa,mdp_env):
+    cnt = 0
+    policy = get_optimal_policy_from_usa(u_sa, mdp_env)
     for r in range(mdp_env.num_rows):
         row_str = ""
         for c in range(mdp_env.num_cols):
